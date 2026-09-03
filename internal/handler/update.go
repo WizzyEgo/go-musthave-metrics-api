@@ -23,7 +23,7 @@ func Update(store model.Storage) http.HandlerFunc {
 			return
 		}
 
-		metricType, metricName, metricValue, status := validateUrl(r)
+		metricType, metricName, metricValue, status := validateURL(r)
 		if status != 0 {
 			w.WriteHeader(status)
 			return
@@ -39,7 +39,7 @@ func Update(store model.Storage) http.HandlerFunc {
 	}
 }
 
-func validateUrl(r *http.Request) (metricType, metricName, metricValue string, status int) {
+func validateURL(r *http.Request) (metricType, metricName, metricValue string, status int) {
 	parsedURL, err := url.Parse(r.URL.Path)
 	if err != nil {
 		return "", "", "", http.StatusBadRequest
