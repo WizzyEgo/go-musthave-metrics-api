@@ -2,8 +2,6 @@ package agent
 
 import (
 	"fmt"
-	"io"
-	"log"
 	"math/rand"
 	"net/http"
 	"runtime"
@@ -73,12 +71,7 @@ func (s *Service) sendMetric(metricType, name, value string) error {
 	if err != nil {
 		return err
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			log.Fatalf("failed to close response body: %s", err)
-		}
-	}(resp.Body)
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
