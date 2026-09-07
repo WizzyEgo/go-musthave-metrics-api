@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"runtime"
@@ -75,7 +76,7 @@ func (s *Service) sendMetric(metricType, name, value string) error {
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
 		if err != nil {
-
+			log.Fatalf("failed to close response body: %s", err)
 		}
 	}(resp.Body)
 
