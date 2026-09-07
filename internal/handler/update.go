@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"go-musthave-metrics-tpl/internal/model"
+	"go-musthave-metrics-tpl/internal/model/server"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -9,14 +9,14 @@ import (
 )
 
 func MetricHandler() http.Handler {
-	memStorage := model.NewMemStorage()
+	memStorage := server.NewMemStorage()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/update/", Update(memStorage))
 
 	return mux
 }
 
-func Update(store model.Storage) http.HandlerFunc {
+func Update(store server.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -75,7 +75,7 @@ func validateURL(r *http.Request) (metricType, metricName, metricValue string, s
 	return metricType, metricName, metricValue, 0
 }
 
-func updateMetric(store model.Storage, metricType, metricName, metricValue string) error {
+func updateMetric(store server.Storage, metricType, metricName, metricValue string) error {
 	switch metricType {
 	case "gauge":
 		val, err := strconv.ParseFloat(metricValue, 64)

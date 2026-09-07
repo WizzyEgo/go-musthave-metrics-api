@@ -1,4 +1,4 @@
-package model
+package server
 
 type Storage interface {
 	UpdateGauge(name string, value float64)
