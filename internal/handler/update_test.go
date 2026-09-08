@@ -1,10 +1,11 @@
 package handler
 
 import (
-	"go-musthave-metrics-tpl/internal/model/server"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"go-musthave-metrics-tpl/internal/model/server"
 )
 
 type stubStorage struct {
@@ -27,9 +28,31 @@ func (s *stubStorage) UpdateCounter(name string, value int64) {
 	s.counters[name] += value
 }
 
+func (s *stubStorage) GetGauge(name string) (float64, bool) {
+	value, ok := s.gauges[name]
+	return value, ok
+}
+
+func (s *stubStorage) GetCounter(name string) (int64, bool) {
+	value, ok := s.counters[name]
+	return value, ok
+}
+
+func (s *stubStorage) GetAll() (map[string]float64, map[string]int64) {
+	gauges := make(map[string]float64, len(s.gauges))
+	for name, value := range s.gauges {
+		gauges[name] = value
+	}
+	counters := make(map[string]int64, len(s.counters))
+	for name, value := range s.counters {
+		counters[name] = value
+	}
+	return gauges, counters
+}
+
 func TestUpdateGauge(t *testing.T) {
 	store := newStubStorage()
-	handler := Update(store)
+	handler := NewRouter(store)
 
 	req := httptest.NewRequest(http.MethodPost, "/update/gauge/Alloc/123.45", nil)
 	rec := httptest.NewRecorder()
@@ -45,7 +68,7 @@ func TestUpdateGauge(t *testing.T) {
 
 func TestUpdateCounter(t *testing.T) {
 	store := newStubStorage()
-	handler := Update(store)
+	handler := NewRouter(store)
 
 	req := httptest.NewRequest(http.MethodPost, "/update/counter/PollCount/5", nil)
 	rec := httptest.NewRecorder()
@@ -69,7 +92,7 @@ func TestUpdateCounter(t *testing.T) {
 
 func TestUpdateInvalidRequests(t *testing.T) {
 	store := server.NewMemStorage()
-	handler := Update(store)
+	handler := NewRouter(store)
 
 	tests := []struct {
 		name   string
