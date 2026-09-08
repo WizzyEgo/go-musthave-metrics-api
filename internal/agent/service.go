@@ -20,7 +20,7 @@ func New(cfg config.AgentConfig) *Service {
 	return &Service{
 		metrics:   modelagent.New(),
 		client:    &http.Client{Timeout: 5 * time.Second},
-		serverURL: cfg.Address,
+		serverURL: "http://" + cfg.Address,
 		pollSec:   cfg.PollInterval,
 		reportSec: cfg.ReportInterval,
 	}
