@@ -16,13 +16,13 @@ type Service struct {
 	reportSec int
 }
 
-func New() *Service {
+func New(cfg config.AgentConfig) *Service {
 	return &Service{
 		metrics:   modelagent.New(),
 		client:    &http.Client{Timeout: 5 * time.Second},
-		serverURL: config.DefaultServerURL,
-		pollSec:   config.PollInterval,
-		reportSec: config.ReportInterval,
+		serverURL: cfg.Address,
+		pollSec:   cfg.PollInterval,
+		reportSec: cfg.ReportInterval,
 	}
 }
 

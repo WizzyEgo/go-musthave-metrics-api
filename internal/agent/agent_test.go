@@ -6,10 +6,12 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"go-musthave-metrics-tpl/internal/config"
 )
 
 func TestCollectUpdatesRuntimeMetrics(t *testing.T) {
-	s := New()
+	s := New(config.DefaultAgent())
 	s.Collect()
 
 	requiredGauges := []string{
@@ -57,7 +59,7 @@ func TestReportSendsMetrics(t *testing.T) {
 	}))
 	defer server.Close()
 
-	s := New()
+	s := New(config.DefaultAgent())
 	s.SetServerURL(server.URL)
 	s.Collect()
 	s.Report()
