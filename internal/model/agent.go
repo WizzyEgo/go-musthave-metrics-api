@@ -1,4 +1,4 @@
-package agent
+package model
 
 import "sync"
 
@@ -8,7 +8,7 @@ type Agent struct {
 	counters map[string]int64
 }
 
-func New() *Agent {
+func NewAgent() *Agent {
 	return &Agent{
 		gauges:   make(map[string]float64),
 		counters: make(map[string]int64),

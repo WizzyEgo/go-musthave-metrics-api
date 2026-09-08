@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"go-musthave-metrics-tpl/internal/model/server"
+	"go-musthave-metrics-tpl/internal/storage"
 )
 
 type stubStorage struct {
@@ -91,7 +91,7 @@ func TestUpdateCounter(t *testing.T) {
 }
 
 func TestUpdateInvalidRequests(t *testing.T) {
-	store := server.NewMemStorage()
+	store := storage.NewMemStorage()
 	handler := NewRouter(store)
 
 	tests := []struct {

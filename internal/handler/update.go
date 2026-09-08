@@ -7,10 +7,10 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"go-musthave-metrics-tpl/internal/model"
-	"go-musthave-metrics-tpl/internal/model/server"
+	"go-musthave-metrics-tpl/internal/storage"
 )
 
-func Update(store server.Storage) http.HandlerFunc {
+func Update(store storage.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		metricType := chi.URLParam(r, "type")
 		metricName := chi.URLParam(r, "name")
@@ -36,7 +36,7 @@ func Update(store server.Storage) http.HandlerFunc {
 	}
 }
 
-func updateMetric(store server.Storage, metricType, metricName, metricValue string) error {
+func updateMetric(store storage.Storage, metricType, metricName, metricValue string) error {
 	switch metricType {
 	case model.Gauge:
 		val, err := strconv.ParseFloat(metricValue, 64)

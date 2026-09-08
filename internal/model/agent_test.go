@@ -1,9 +1,9 @@
-package agent
+package model
 
 import "testing"
 
 func TestSetGaugeAndAddCounter(t *testing.T) {
-	a := New()
+	a := NewAgent()
 
 	a.SetGauge("Alloc", 10.5)
 	a.AddCounter("PollCount", 1)
@@ -23,7 +23,7 @@ func TestSetGaugeAndAddCounter(t *testing.T) {
 }
 
 func TestSnapshot(t *testing.T) {
-	a := New()
+	a := NewAgent()
 	a.SetGauge("RandomValue", 0.42)
 	a.AddCounter("PollCount", 5)
 
