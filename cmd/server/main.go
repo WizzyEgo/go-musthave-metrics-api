@@ -1,12 +1,15 @@
 package main
 
 import (
-	"go-musthave-metrics-tpl/internal/handler"
 	"net/http"
+
+	"go-musthave-metrics-tpl/internal/config"
+	"go-musthave-metrics-tpl/internal/handler"
 )
 
 func main() {
-	err := http.ListenAndServe(":8080", handler.MetricHandler())
+	cfg := config.ParseServer()
+	err := http.ListenAndServe(cfg.Address, handler.MetricHandler())
 
 	if err != nil {
 		panic(err)

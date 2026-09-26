@@ -9,38 +9,46 @@ import (
 	"time"
 )
 
-func (s *Service) Collect() {
+func (s *Service) collect() map[string]float64 {
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 
-	s.metrics.SetGauge("Alloc", float64(memStats.Alloc))
-	s.metrics.SetGauge("BuckHashSys", float64(memStats.BuckHashSys))
-	s.metrics.SetGauge("Frees", float64(memStats.Frees))
-	s.metrics.SetGauge("GCCPUFraction", memStats.GCCPUFraction)
-	s.metrics.SetGauge("GCSys", float64(memStats.GCSys))
-	s.metrics.SetGauge("HeapAlloc", float64(memStats.HeapAlloc))
-	s.metrics.SetGauge("HeapIdle", float64(memStats.HeapIdle))
-	s.metrics.SetGauge("HeapInuse", float64(memStats.HeapInuse))
-	s.metrics.SetGauge("HeapObjects", float64(memStats.HeapObjects))
-	s.metrics.SetGauge("HeapReleased", float64(memStats.HeapReleased))
-	s.metrics.SetGauge("HeapSys", float64(memStats.HeapSys))
-	s.metrics.SetGauge("LastGC", float64(memStats.LastGC))
-	s.metrics.SetGauge("Lookups", float64(memStats.Lookups))
-	s.metrics.SetGauge("MCacheInuse", float64(memStats.MCacheInuse))
-	s.metrics.SetGauge("MCacheSys", float64(memStats.MCacheSys))
-	s.metrics.SetGauge("MSpanInuse", float64(memStats.MSpanInuse))
-	s.metrics.SetGauge("MSpanSys", float64(memStats.MSpanSys))
-	s.metrics.SetGauge("Mallocs", float64(memStats.Mallocs))
-	s.metrics.SetGauge("NextGC", float64(memStats.NextGC))
-	s.metrics.SetGauge("NumForcedGC", float64(memStats.NumForcedGC))
-	s.metrics.SetGauge("NumGC", float64(memStats.NumGC))
-	s.metrics.SetGauge("OtherSys", float64(memStats.OtherSys))
-	s.metrics.SetGauge("PauseTotalNs", float64(memStats.PauseTotalNs))
-	s.metrics.SetGauge("StackInuse", float64(memStats.StackInuse))
-	s.metrics.SetGauge("StackSys", float64(memStats.StackSys))
-	s.metrics.SetGauge("Sys", float64(memStats.Sys))
-	s.metrics.SetGauge("TotalAlloc", float64(memStats.TotalAlloc))
-	s.metrics.SetGauge("RandomValue", rand.Float64())
+	return map[string]float64{
+		"Alloc":         float64(memStats.Alloc),
+		"BuckHashSys":   float64(memStats.BuckHashSys),
+		"Frees":         float64(memStats.Frees),
+		"GCCPUFraction": memStats.GCCPUFraction,
+		"GCSys":         float64(memStats.GCSys),
+		"HeapAlloc":     float64(memStats.HeapAlloc),
+		"HeapIdle":      float64(memStats.HeapIdle),
+		"HeapInuse":     float64(memStats.HeapInuse),
+		"HeapObjects":   float64(memStats.HeapObjects),
+		"HeapReleased":  float64(memStats.HeapReleased),
+		"HeapSys":       float64(memStats.HeapSys),
+		"LastGC":        float64(memStats.LastGC),
+		"Lookups":       float64(memStats.Lookups),
+		"MCacheInuse":   float64(memStats.MCacheInuse),
+		"MCacheSys":     float64(memStats.MCacheSys),
+		"MSpanInuse":    float64(memStats.MSpanInuse),
+		"MSpanSys":      float64(memStats.MSpanSys),
+		"Mallocs":       float64(memStats.Mallocs),
+		"NextGC":        float64(memStats.NextGC),
+		"NumForcedGC":   float64(memStats.NumForcedGC),
+		"NumGC":         float64(memStats.NumGC),
+		"OtherSys":      float64(memStats.OtherSys),
+		"PauseTotalNs":  float64(memStats.PauseTotalNs),
+		"StackInuse":    float64(memStats.StackInuse),
+		"StackSys":      float64(memStats.StackSys),
+		"Sys":           float64(memStats.Sys),
+		"TotalAlloc":    float64(memStats.TotalAlloc),
+		"RandomValue":   rand.Float64(),
+	}
+}
+
+func (s *Service) Collect() {
+	for name, value := range s.collect() {
+		s.metrics.SetGauge(name, value)
+	}
 	s.metrics.AddCounter("PollCount", 1)
 }
 

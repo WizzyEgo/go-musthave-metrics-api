@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -75,18 +74,18 @@ func TestIndexListsMetrics(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
-		t.Fatalf("Content-Type = %q, want application/json", ct)
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "text/html") {
+		t.Fatalf("Content-Type = %q, want text/html", ct)
 	}
 
-	var got map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
+	body := rec.Body.String()
+	if !strings.Contains(body, "<html") {
+		t.Fatalf("body is not HTML: %q", body)
 	}
-	if got["Alloc"] != float64(42) {
-		t.Fatalf("Alloc = %v, want 42", got["Alloc"])
+	if !strings.Contains(body, "Alloc") || !strings.Contains(body, "42") {
+		t.Fatalf("body missing gauge Alloc: %q", body)
 	}
-	if got["PollCount"] != float64(3) {
-		t.Fatalf("PollCount = %v, want 3", got["PollCount"])
+	if !strings.Contains(body, "PollCount") || !strings.Contains(body, "3") {
+		t.Fatalf("body missing counter PollCount: %q", body)
 	}
 }

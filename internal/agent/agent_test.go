@@ -6,10 +6,35 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"go-musthave-metrics-tpl/internal/config"
 )
 
+func TestCollectReturnsRuntimeGauges(t *testing.T) {
+	s := New(config.DefaultAgent())
+	gauges := s.collect()
+
+	required := []string{
+		"Alloc", "BuckHashSys", "Frees", "GCCPUFraction", "GCSys",
+		"HeapAlloc", "HeapIdle", "HeapInuse", "HeapObjects", "HeapReleased",
+		"HeapSys", "LastGC", "Lookups", "MCacheInuse", "MCacheSys",
+		"MSpanInuse", "MSpanSys", "Mallocs", "NextGC", "NumForcedGC",
+		"NumGC", "OtherSys", "PauseTotalNs", "StackInuse", "StackSys",
+		"Sys", "TotalAlloc", "RandomValue",
+	}
+
+	if len(gauges) != len(required) {
+		t.Fatalf("collect() returned %d gauges, want %d", len(gauges), len(required))
+	}
+	for _, name := range required {
+		if _, ok := gauges[name]; !ok {
+			t.Errorf("collect() missing gauge %q", name)
+		}
+	}
+}
+
 func TestCollectUpdatesRuntimeMetrics(t *testing.T) {
-	s := New()
+	s := New(config.DefaultAgent())
 	s.Collect()
 
 	requiredGauges := []string{
@@ -57,7 +82,7 @@ func TestReportSendsMetrics(t *testing.T) {
 	}))
 	defer server.Close()
 
-	s := New()
+	s := New(config.DefaultAgent())
 	s.SetServerURL(server.URL)
 	s.Collect()
 	s.Report()

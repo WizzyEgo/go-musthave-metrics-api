@@ -5,28 +5,28 @@ import (
 	"time"
 
 	"go-musthave-metrics-tpl/internal/config"
-	modelagent "go-musthave-metrics-tpl/internal/model/agent"
+	"go-musthave-metrics-tpl/internal/model"
 )
 
 type Service struct {
-	metrics   *modelagent.Agent
+	metrics   *model.Agent
 	client    *http.Client
 	serverURL string
 	pollSec   int
 	reportSec int
 }
 
-func New() *Service {
+func New(cfg config.AgentConfig) *Service {
 	return &Service{
-		metrics:   modelagent.New(),
+		metrics:   model.NewAgent(),
 		client:    &http.Client{Timeout: 5 * time.Second},
-		serverURL: config.DefaultServerURL,
-		pollSec:   config.PollInterval,
-		reportSec: config.ReportInterval,
+		serverURL: "http://" + cfg.Address,
+		pollSec:   cfg.PollInterval,
+		reportSec: cfg.ReportInterval,
 	}
 }
 
-func (s *Service) GetMetrics() *modelagent.Agent {
+func (s *Service) GetMetrics() *model.Agent {
 	return s.metrics
 }
 
