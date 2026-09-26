@@ -3,8 +3,8 @@ package main
 import (
 	"net/http"
 
-	"go-musthave-metrics-tpl/internal/config"
-	"go-musthave-metrics-tpl/internal/handler"
+	"go-musthave-metrics-tpl/internal/server/config"
+	"go-musthave-metrics-tpl/internal/server/handler"
 )
 
 func main() {

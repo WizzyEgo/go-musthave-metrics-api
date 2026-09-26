@@ -1,4 +1,4 @@
-package agent
+package service
 
 import (
 	"net/http"
@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"go-musthave-metrics-tpl/internal/config"
+	"go-musthave-metrics-tpl/internal/agent/config"
 )
 
 func TestCollectReturnsRuntimeGauges(t *testing.T) {

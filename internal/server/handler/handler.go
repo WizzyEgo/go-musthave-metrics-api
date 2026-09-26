@@ -5,7 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"go-musthave-metrics-tpl/internal/storage"
+	"go-musthave-metrics-tpl/internal/server/storage"
 )
 
 func MetricHandler() http.Handler {
