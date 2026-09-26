@@ -1,4 +1,4 @@
-package agent
+package service
 
 import (
 	"fmt"
@@ -90,13 +90,13 @@ func (s *Service) sendMetric(metricType, name, value string) error {
 func (s *Service) Run() {
 	go func() {
 		for {
-			time.Sleep(time.Duration(s.pollSec) * time.Second)
+			time.Sleep(s.pollInterval)
 			s.Collect()
 		}
 	}()
 
 	for {
-		time.Sleep(time.Duration(s.reportSec) * time.Second)
+		time.Sleep(s.reportInterval)
 		s.Report()
 	}
 }

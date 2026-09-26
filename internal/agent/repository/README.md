@@ -1,4 +1,4 @@
-# internal/repository
+# internal/agent/repository
 
 Этот пакет содержит реализацию работы с базой данных, а также со внешними сервисами.
 

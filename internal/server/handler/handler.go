@@ -5,7 +5,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"go-musthave-metrics-tpl/internal/storage"
+	"go-musthave-metrics-tpl/internal/server/logger"
+	"go-musthave-metrics-tpl/internal/server/storage"
 )
 
 func MetricHandler() http.Handler {
@@ -14,6 +15,7 @@ func MetricHandler() http.Handler {
 
 func NewRouter(store storage.Storage) http.Handler {
 	r := chi.NewRouter()
+	r.Use(logger.RequestLogger)
 	r.Post("/update/{type}/{name}/{value}", Update(store))
 	r.Get("/value/{type}/{name}", Value(store))
 	r.Get("/", Index(store))
