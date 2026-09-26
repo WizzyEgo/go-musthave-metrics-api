@@ -6,8 +6,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"go-musthave-metrics-tpl/internal/model"
-	"go-musthave-metrics-tpl/internal/storage"
+	"go-musthave-metrics-tpl/internal/server/model"
+	"go-musthave-metrics-tpl/internal/server/storage"
 )
 
 func Value(store storage.Storage) http.HandlerFunc {
