@@ -4,7 +4,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
+
+	"go-musthave-metrics-tpl/internal/server/logger"
 	"go-musthave-metrics-tpl/internal/server/storage"
 )
 
@@ -133,4 +139,66 @@ func TestMetricHandler(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); ct != "text/plain" {
 		t.Fatalf("Content-Type = %q, want text/plain", ct)
 	}
+}
+
+func TestRouterLogsRequests(t *testing.T) {
+	core, recorded := observer.New(zapcore.InfoLevel)
+	store := newStubStorage()
+	store.UpdateGauge("SingletonAlloc", 1)
+	h := NewRouter(store)
+
+	tests := []struct {
+		method string
+		path   string
+		status int
+	}{
+		{method: http.MethodPost, path: "/update/counter/SingletonPoll/1", status: http.StatusOK},
+		{method: http.MethodGet, path: "/value/gauge/SingletonAlloc", status: http.StatusOK},
+		{method: http.MethodGet, path: "/", status: http.StatusOK},
+	}
+
+	prev := logger.Log
+	logger.Log = zap.New(core)
+	t.Cleanup(func() { logger.Log = prev })
+
+	for _, tt := range tests {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+
+			if rec.Code != tt.status {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.status)
+			}
+
+			fields := logFields(recorded.All(), tt.path)
+			if fields == nil {
+				t.Fatalf("no log entry for %s", tt.path)
+			}
+			if fields["method"] != tt.method {
+				t.Fatalf("method = %v, want %s", fields["method"], tt.method)
+			}
+			duration, ok := fields["duration"].(time.Duration)
+			if !ok || duration < 0 {
+				t.Fatalf("duration = %v (%T), want non-negative time.Duration", fields["duration"], fields["duration"])
+			}
+			if fields["status"] != int64(tt.status) {
+				t.Fatalf("status = %v, want %d", fields["status"], tt.status)
+			}
+			size, ok := fields["size"].(int64)
+			if !ok || size < 0 {
+				t.Fatalf("size = %v (%T), want non-negative int64", fields["size"], fields["size"])
+			}
+		})
+	}
+}
+
+func logFields(entries []observer.LoggedEntry, uri string) map[string]any {
+	for i := len(entries) - 1; i >= 0; i-- {
+		fields := entries[i].ContextMap()
+		if fields["uri"] == uri {
+			return fields
+		}
+	}
+	return nil
 }
