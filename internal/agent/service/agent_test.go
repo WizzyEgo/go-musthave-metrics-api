@@ -1,6 +1,7 @@
 package service
 
 import (
+	"compress/gzip"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -85,11 +86,20 @@ func TestReportSendsMetrics(t *testing.T) {
 		if ct := r.Header.Get("Content-Type"); ct != "application/json" {
 			t.Errorf("Content-Type = %q, want application/json", ct)
 		}
+		if ce := r.Header.Get("Content-Encoding"); ce != "gzip" {
+			t.Errorf("Content-Encoding = %q, want gzip", ce)
+		}
 
-		body, err := io.ReadAll(r.Body)
+		zr, err := gzip.NewReader(r.Body)
+		if err != nil {
+			t.Errorf("gzip reader: %v", err)
+			return
+		}
+		body, err := io.ReadAll(zr)
 		if err != nil {
 			t.Errorf("read body: %v", err)
 		}
+		_ = zr.Close()
 		var metric model.Metrics
 		if err := easyjson.Unmarshal(body, &metric); err != nil {
 			t.Errorf("unmarshal body: %v", err)

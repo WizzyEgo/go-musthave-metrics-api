@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"compress/gzip"
 	"fmt"
 	"io"
 	"math/rand"
@@ -87,11 +88,24 @@ func (s *Service) sendMetric(metric model.Metrics) error {
 		return err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, s.serverURL+"/update", bytes.NewReader(payload))
+	var buf bytes.Buffer
+	zw, err := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
+	if err != nil {
+		return err
+	}
+	if _, err = zw.Write(payload); err != nil {
+		return err
+	}
+	if err = zw.Close(); err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, s.serverURL+"/update", &buf)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
 
 	resp, err := s.client.Do(req)
 	if err != nil {
