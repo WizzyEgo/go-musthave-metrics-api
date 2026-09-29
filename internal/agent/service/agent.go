@@ -1,12 +1,17 @@
-package agent
+package service
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"runtime"
-	"strconv"
 	"time"
+
+	"github.com/mailru/easyjson"
+
+	"go-musthave-metrics-tpl/internal/server/model"
 )
 
 func (s *Service) collect() map[string]float64 {
@@ -56,30 +61,44 @@ func (s *Service) Report() {
 	gauges, counters := s.metrics.Snapshot()
 
 	for name, value := range gauges {
-		_ = s.sendMetric("gauge", name, strconv.FormatFloat(value, 'f', -1, 64))
+		v := value
+		_ = s.sendMetric(model.Metrics{
+			ID:    name,
+			MType: model.Gauge,
+			Value: &v,
+		})
 	}
 
 	for name, value := range counters {
-		if err := s.sendMetric("counter", name, strconv.FormatInt(value, 10)); err == nil {
+		delta := value
+		if err := s.sendMetric(model.Metrics{
+			ID:    name,
+			MType: model.Counter,
+			Delta: &delta,
+		}); err == nil {
 			s.metrics.SubCounter(name, value)
 		}
 	}
 }
 
-func (s *Service) sendMetric(metricType, name, value string) error {
-	url := fmt.Sprintf("%s/update/%s/%s/%s", s.serverURL, metricType, name, value)
-
-	req, err := http.NewRequest(http.MethodPost, url, nil)
+func (s *Service) sendMetric(metric model.Metrics) error {
+	payload, err := easyjson.Marshal(metric)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "text/plain")
+
+	req, err := http.NewRequest(http.MethodPost, s.serverURL+"/update", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
@@ -90,13 +109,13 @@ func (s *Service) sendMetric(metricType, name, value string) error {
 func (s *Service) Run() {
 	go func() {
 		for {
-			time.Sleep(time.Duration(s.pollSec) * time.Second)
+			time.Sleep(s.pollInterval)
 			s.Collect()
 		}
 	}()
 
 	for {
-		time.Sleep(time.Duration(s.reportSec) * time.Second)
+		time.Sleep(s.reportInterval)
 		s.Report()
 	}
 }

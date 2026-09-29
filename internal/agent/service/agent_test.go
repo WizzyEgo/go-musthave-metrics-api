@@ -1,13 +1,18 @@
-package agent
+package service
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 
-	"go-musthave-metrics-tpl/internal/config"
+	"github.com/mailru/easyjson"
+
+	"go-musthave-metrics-tpl/internal/agent/config"
+	"go-musthave-metrics-tpl/internal/server/handler"
+	"go-musthave-metrics-tpl/internal/server/model"
+	"go-musthave-metrics-tpl/internal/server/storage"
 )
 
 func TestCollectReturnsRuntimeGauges(t *testing.T) {
@@ -68,16 +73,42 @@ func TestCollectUpdatesRuntimeMetrics(t *testing.T) {
 }
 
 func TestReportSendsMetrics(t *testing.T) {
-	var requests []string
+	var requests []model.Metrics
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("method = %s, want POST", r.Method)
 		}
-		if ct := r.Header.Get("Content-Type"); ct != "text/plain" {
-			t.Errorf("Content-Type = %q, want text/plain", ct)
+		if r.URL.Path != "/update" {
+			t.Errorf("path = %s, want /update", r.URL.Path)
 		}
-		requests = append(requests, r.URL.Path)
+		if ct := r.Header.Get("Content-Type"); ct != "application/json" {
+			t.Errorf("Content-Type = %q, want application/json", ct)
+		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read body: %v", err)
+		}
+		var metric model.Metrics
+		if err := easyjson.Unmarshal(body, &metric); err != nil {
+			t.Errorf("unmarshal body: %v", err)
+		}
+		raw := string(body)
+		switch metric.MType {
+		case model.Gauge:
+			if metric.Value == nil || strings.Contains(raw, `"delta"`) {
+				t.Errorf("gauge %s body = %s", metric.ID, raw)
+			}
+		case model.Counter:
+			if metric.Delta == nil || strings.Contains(raw, `"value"`) {
+				t.Errorf("counter %s body = %s", metric.ID, raw)
+			}
+		default:
+			t.Errorf("unexpected metric type %q", metric.MType)
+		}
+		requests = append(requests, metric)
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -93,15 +124,14 @@ func TestReportSendsMetrics(t *testing.T) {
 
 	foundPollCount := false
 	foundRandomValue := false
-	for _, path := range requests {
-		if strings.HasPrefix(path, "/update/counter/PollCount/") {
+	for _, metric := range requests {
+		if metric.MType == model.Counter && metric.ID == "PollCount" {
 			foundPollCount = true
-			value := strings.TrimPrefix(path, "/update/counter/PollCount/")
-			if _, err := strconv.ParseInt(value, 10, 64); err != nil {
-				t.Errorf("invalid PollCount value %q: %v", value, err)
+			if metric.Delta == nil || *metric.Delta != 1 {
+				t.Errorf("PollCount delta = %v, want 1", metric.Delta)
 			}
 		}
-		if strings.HasPrefix(path, "/update/gauge/RandomValue/") {
+		if metric.MType == model.Gauge && metric.ID == "RandomValue" {
 			foundRandomValue = true
 		}
 	}
@@ -119,5 +149,31 @@ func TestReportSendsMetrics(t *testing.T) {
 	}
 	if pollCount != 0 {
 		t.Fatalf("PollCount after successful report = %d, want 0", pollCount)
+	}
+}
+
+func TestReportStoresMetricsOnServer(t *testing.T) {
+	store := storage.NewMemStorage()
+	server := httptest.NewServer(handler.NewRouter(store))
+	defer server.Close()
+
+	s := New(config.DefaultAgent())
+	s.SetServerURL(server.URL)
+	s.Collect()
+
+	gauges, counters := s.GetMetrics().Snapshot()
+	s.Report()
+
+	for name, value := range gauges {
+		got, ok := store.GetGauge(name)
+		if !ok || got != value {
+			t.Errorf("server gauge %s = (%v, %v), want %v", name, got, ok, value)
+		}
+	}
+	for name, value := range counters {
+		got, ok := store.GetCounter(name)
+		if !ok || got != value {
+			t.Errorf("server counter %s = (%v, %v), want %v", name, got, ok, value)
+		}
 	}
 }

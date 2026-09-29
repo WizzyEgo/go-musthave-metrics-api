@@ -1,4 +1,4 @@
-# internal/config
+# internal/agent/config
 
 В этом пакете хранятся конфигурации приложения.
 

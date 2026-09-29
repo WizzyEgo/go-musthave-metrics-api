@@ -3,15 +3,19 @@ package main
 import (
 	"net/http"
 
-	"go-musthave-metrics-tpl/internal/config"
-	"go-musthave-metrics-tpl/internal/handler"
+	"go.uber.org/zap"
+
+	"go-musthave-metrics-tpl/internal/server/config"
+	"go-musthave-metrics-tpl/internal/server/handler"
+	"go-musthave-metrics-tpl/internal/server/logger"
 )
 
 func main() {
 	cfg := config.ParseServer()
-	err := http.ListenAndServe(cfg.Address, handler.MetricHandler())
+	defer func() { _ = logger.Log.Sync() }()
 
-	if err != nil {
+	if err := http.ListenAndServe(cfg.Address, handler.MetricHandler()); err != nil {
+		logger.Log.Error("failed to start server", zap.Error(err))
 		panic(err)
 	}
 }

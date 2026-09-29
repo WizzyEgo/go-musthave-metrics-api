@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strconv"
 
-	"go-musthave-metrics-tpl/internal/storage"
+	"go-musthave-metrics-tpl/internal/server/storage"
 )
 
 type metricItem struct {
