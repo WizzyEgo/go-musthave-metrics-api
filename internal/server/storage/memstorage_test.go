@@ -30,6 +30,20 @@ func TestMemStorageUpdateCounter(t *testing.T) {
 	}
 }
 
+func TestMemStorageSetCounter(t *testing.T) {
+	store := NewMemStorage()
+	store.UpdateCounter("PollCount", 5)
+	store.SetCounter("PollCount", 2)
+
+	got, ok := store.GetCounter("PollCount")
+	if !ok {
+		t.Fatal("PollCount was not stored")
+	}
+	if got != 2 {
+		t.Fatalf("PollCount = %d, want 2", got)
+	}
+}
+
 func TestMemStorageGetUnknown(t *testing.T) {
 	store := NewMemStorage()
 

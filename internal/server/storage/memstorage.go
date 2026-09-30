@@ -20,6 +20,10 @@ func (ms *MemStorage) UpdateCounter(name string, value int64) {
 	ms.counters[name] += value
 }
 
+func (ms *MemStorage) SetCounter(name string, value int64) {
+	ms.counters[name] = value
+}
+
 func (ms *MemStorage) GetGauge(name string) (float64, bool) {
 	value, ok := ms.gauges[name]
 	return value, ok
