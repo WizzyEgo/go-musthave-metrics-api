@@ -10,8 +10,8 @@ import (
 	"go-musthave-metrics-tpl/internal/server/storage"
 )
 
-func MetricHandler() http.Handler {
-	return NewRouter(storage.NewMemStorage())
+func MetricHandler(store storage.Storage) http.Handler {
+	return NewRouter(store)
 }
 
 func NewRouter(store storage.Storage) http.Handler {
