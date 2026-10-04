@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"go-musthave-metrics-tpl/internal/compress"
 )
 
 // Gzip распаковывает запрос с Content-Encoding: gzip и сжимает ответ,
@@ -33,7 +35,7 @@ func decompressRequest(r *http.Request) error {
 		return nil
 	}
 
-	zr, err := gzip.NewReader(r.Body)
+	zr, err := compress.NewReader(r.Body)
 	if err != nil {
 		return err
 	}
@@ -79,7 +81,7 @@ func (c *compressWriter) WriteHeader(statusCode int) {
 	if compressible(c.Header().Get("Content-Type")) {
 		c.Header().Set("Content-Encoding", "gzip")
 		c.Header().Del("Content-Length")
-		zw, err := gzip.NewWriterLevel(c.ResponseWriter, gzip.BestSpeed)
+		zw, err := compress.NewWriter(c.ResponseWriter)
 		if err == nil {
 			c.zw = zw
 		} else {

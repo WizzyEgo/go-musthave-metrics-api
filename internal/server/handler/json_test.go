@@ -8,12 +8,12 @@ import (
 
 	"github.com/mailru/easyjson"
 
-	"go-musthave-metrics-tpl/internal/server/model"
+	"go-musthave-metrics-tpl/internal/model"
 )
 
 func TestUpdateJSONGauge(t *testing.T) {
 	store := newStubStorage()
-	h := NewRouter(store)
+	h := NewRouter(nil, store)
 
 	req := httptest.NewRequest(http.MethodPost, "/update", strings.NewReader(
 		`{"id":"LastGC","type":"gauge","value":1744184459}`,
@@ -49,7 +49,7 @@ func TestUpdateJSONGauge(t *testing.T) {
 
 func TestUpdateJSONGaugeZero(t *testing.T) {
 	store := newStubStorage()
-	h := NewRouter(store)
+	h := NewRouter(nil, store)
 
 	req := httptest.NewRequest(http.MethodPost, "/update/", strings.NewReader(
 		`{"id":"Alloc","type":"gauge","value":0}`,
@@ -71,7 +71,7 @@ func TestUpdateJSONGaugeZero(t *testing.T) {
 
 func TestUpdateJSONCounterAccumulates(t *testing.T) {
 	store := newStubStorage()
-	h := NewRouter(store)
+	h := NewRouter(nil, store)
 
 	send := func(body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/update", strings.NewReader(body))
@@ -110,7 +110,7 @@ func TestUpdateJSONCounterAccumulates(t *testing.T) {
 }
 
 func TestUpdateJSONInvalidRequests(t *testing.T) {
-	h := NewRouter(newStubStorage())
+	h := NewRouter(nil, newStubStorage())
 
 	tests := []struct {
 		name string
@@ -142,7 +142,7 @@ func TestValueJSON(t *testing.T) {
 	store := newStubStorage()
 	store.UpdateGauge("LastGC", 1744184459)
 	store.UpdateCounter("PollCount", 8)
-	h := NewRouter(store)
+	h := NewRouter(nil, store)
 
 	req := httptest.NewRequest(http.MethodPost, "/value", strings.NewReader(
 		`{"id":"LastGC","type":"gauge"}`,
@@ -188,7 +188,7 @@ func TestValueJSON(t *testing.T) {
 func TestValueJSONErrors(t *testing.T) {
 	store := newStubStorage()
 	store.UpdateGauge("Alloc", 1)
-	h := NewRouter(store)
+	h := NewRouter(nil, store)
 
 	tests := []struct {
 		name string
@@ -216,7 +216,7 @@ func TestValueJSONErrors(t *testing.T) {
 }
 
 func TestJSONUpdateIsReadableByTextAPI(t *testing.T) {
-	h := NewRouter(newStubStorage())
+	h := NewRouter(nil, newStubStorage())
 
 	req := httptest.NewRequest(http.MethodPost, "/update", strings.NewReader(
 		`{"id":"Alloc","type":"gauge","value":42.5}`,

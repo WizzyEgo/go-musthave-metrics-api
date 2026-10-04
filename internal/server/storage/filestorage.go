@@ -15,25 +15,38 @@ import (
 
 	"go.uber.org/zap"
 
-	"go-musthave-metrics-tpl/internal/server/logger"
-	"go-musthave-metrics-tpl/internal/server/model"
+	"go-musthave-metrics-tpl/internal/model"
 )
 
 var _ Storage = (*FileStorage)(nil)
 
 type FileStorage struct {
 	mem         *MemStorage
+	log         *zap.Logger
 	path        string
 	synchronous bool
 	mu          sync.RWMutex
 }
 
-func NewFileStorage(path string, synchronous bool) *FileStorage {
-	return &FileStorage{
+// NewFileStorage создаёт хранилище и при restore читает файл.
+// Если чтение не удалось, возвращается рабочее пустое хранилище и ошибка.
+func NewFileStorage(log *zap.Logger, path string, synchronous, restore bool) (*FileStorage, error) {
+	if log == nil {
+		log = zap.NewNop()
+	}
+	store := &FileStorage{
 		mem:         NewMemStorage(),
+		log:         log,
 		path:        path,
 		synchronous: synchronous && path != "",
 	}
+	if !restore || path == "" {
+		return store, nil
+	}
+	if err := store.Load(); err != nil {
+		return store, err
+	}
+	return store, nil
 }
 
 func (s *FileStorage) UpdateGauge(name string, value float64) {
@@ -126,7 +139,7 @@ func (s *FileStorage) FlushEvery(ctx context.Context, interval time.Duration) {
 			return
 		case <-ticker.C:
 			if err := s.Save(); err != nil {
-				logger.Log.Error("failed to save metrics", zap.Error(err))
+				s.log.Error("failed to save metrics", zap.Error(err))
 			}
 		}
 	}
@@ -137,7 +150,7 @@ func (s *FileStorage) saveSynced() {
 		return
 	}
 	if err := s.writeUnlocked(); err != nil {
-		logger.Log.Error("failed to save metrics", zap.Error(err))
+		s.log.Error("failed to save metrics", zap.Error(err))
 	}
 }
 

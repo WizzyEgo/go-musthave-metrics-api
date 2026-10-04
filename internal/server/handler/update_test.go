@@ -10,7 +10,6 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 
-	"go-musthave-metrics-tpl/internal/server/logger"
 	"go-musthave-metrics-tpl/internal/server/storage"
 )
 
@@ -58,7 +57,7 @@ func (s *stubStorage) GetAll() (map[string]float64, map[string]int64) {
 
 func TestUpdateGauge(t *testing.T) {
 	store := newStubStorage()
-	handler := NewRouter(store)
+	handler := NewRouter(nil, store)
 
 	req := httptest.NewRequest(http.MethodPost, "/update/gauge/Alloc/123.45", nil)
 	rec := httptest.NewRecorder()
@@ -74,7 +73,7 @@ func TestUpdateGauge(t *testing.T) {
 
 func TestUpdateCounter(t *testing.T) {
 	store := newStubStorage()
-	handler := NewRouter(store)
+	handler := NewRouter(nil, store)
 
 	req := httptest.NewRequest(http.MethodPost, "/update/counter/PollCount/5", nil)
 	rec := httptest.NewRecorder()
@@ -98,7 +97,7 @@ func TestUpdateCounter(t *testing.T) {
 
 func TestUpdateInvalidRequests(t *testing.T) {
 	store := storage.NewMemStorage()
-	handler := NewRouter(store)
+	handler := NewRouter(nil, store)
 
 	tests := []struct {
 		name   string
@@ -128,7 +127,7 @@ func TestUpdateInvalidRequests(t *testing.T) {
 }
 
 func TestMetricHandler(t *testing.T) {
-	h := MetricHandler(storage.NewMemStorage())
+	h := MetricHandler(nil, storage.NewMemStorage())
 	req := httptest.NewRequest(http.MethodPost, "/update/gauge/HeapAlloc/42", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -145,7 +144,7 @@ func TestRouterLogsRequests(t *testing.T) {
 	core, recorded := observer.New(zapcore.InfoLevel)
 	store := newStubStorage()
 	store.UpdateGauge("SingletonAlloc", 1)
-	h := NewRouter(store)
+	h := NewRouter(zap.New(core), store)
 
 	tests := []struct {
 		method string
@@ -156,10 +155,6 @@ func TestRouterLogsRequests(t *testing.T) {
 		{method: http.MethodGet, path: "/value/gauge/SingletonAlloc", status: http.StatusOK},
 		{method: http.MethodGet, path: "/", status: http.StatusOK},
 	}
-
-	prev := logger.Log
-	logger.Log = zap.New(core)
-	t.Cleanup(func() { logger.Log = prev })
 
 	for _, tt := range tests {
 		t.Run(tt.method+" "+tt.path, func(t *testing.T) {

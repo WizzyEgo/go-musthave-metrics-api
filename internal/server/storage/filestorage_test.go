@@ -8,12 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"go-musthave-metrics-tpl/internal/server/model"
+	"go.uber.org/zap"
+
+	"go-musthave-metrics-tpl/internal/model"
 )
 
 func TestFileStorageSyncRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "metrics.json")
-	store := NewFileStorage(path, true)
+	store := mustFileStorage(t, path, true, false)
 	store.UpdateGauge("Alloc", 1.5)
 	store.UpdateGauge("Alloc", 2.5)
 	store.UpdateCounter("PollCount", 2)
@@ -21,10 +23,7 @@ func TestFileStorageSyncRoundTrip(t *testing.T) {
 	store.UpdateGauge("ZeroGauge", 0)
 	store.UpdateCounter("ZeroCounter", 0)
 
-	restored := NewFileStorage(path, false)
-	if err := restored.Load(); err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
+	restored := mustFileStorage(t, path, false, true)
 
 	gauge, ok := restored.GetGauge("Alloc")
 	if !ok || gauge != 2.5 {
@@ -54,7 +53,7 @@ func TestFileStorageSyncRoundTrip(t *testing.T) {
 
 func TestFileStorageAsyncSave(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "metrics.json")
-	store := NewFileStorage(path, false)
+	store := mustFileStorage(t, path, false, false)
 	store.UpdateGauge("LastGC", 12)
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("file exists before Save, err = %v", err)
@@ -79,10 +78,7 @@ func TestFileStorageLoadArrayAndNDJSON(t *testing.T) {
 	if err := os.WriteFile(arrayPath, array, 0644); err != nil {
 		t.Fatal(err)
 	}
-	store := NewFileStorage(arrayPath, false)
-	if err := store.Load(); err != nil {
-		t.Fatalf("Load() array error = %v", err)
-	}
+	store := mustFileStorage(t, arrayPath, false, true)
 	if value, ok := store.GetCounter("NumGC"); !ok || value != 42 {
 		t.Fatalf("NumGC = %d, %v", value, ok)
 	}
@@ -95,10 +91,7 @@ func TestFileStorageLoadArrayAndNDJSON(t *testing.T) {
 	if err := os.WriteFile(ndjsonPath, ndjson, 0644); err != nil {
 		t.Fatal(err)
 	}
-	lines := NewFileStorage(ndjsonPath, false)
-	if err := lines.Load(); err != nil {
-		t.Fatalf("Load() ndjson error = %v", err)
-	}
+	lines := mustFileStorage(t, ndjsonPath, false, true)
 	if value, ok := lines.GetGauge("Alloc"); !ok || value != 1.25 {
 		t.Fatalf("Alloc = %v, %v", value, ok)
 	}
@@ -108,19 +101,13 @@ func TestFileStorageLoadArrayAndNDJSON(t *testing.T) {
 }
 
 func TestFileStorageLoadMissingAndEmpty(t *testing.T) {
-	store := NewFileStorage(filepath.Join(t.TempDir(), "missing.json"), false)
-	if err := store.Load(); err != nil {
-		t.Fatalf("Load() missing error = %v", err)
-	}
+	mustFileStorage(t, filepath.Join(t.TempDir(), "missing.json"), false, true)
 
 	emptyPath := filepath.Join(t.TempDir(), "empty.json")
 	if err := os.WriteFile(emptyPath, []byte(" \n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	empty := NewFileStorage(emptyPath, false)
-	if err := empty.Load(); err != nil {
-		t.Fatalf("Load() empty error = %v", err)
-	}
+	mustFileStorage(t, emptyPath, false, true)
 }
 
 func TestFileStorageLoadInvalid(t *testing.T) {
@@ -128,14 +115,13 @@ func TestFileStorageLoadInvalid(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	store := NewFileStorage(path, false)
-	if err := store.Load(); err == nil {
+	if _, err := NewFileStorage(zap.NewNop(), path, false, true); err == nil {
 		t.Fatal("expected decode error")
 	}
 }
 
 func TestFileStorageEmptyPath(t *testing.T) {
-	store := NewFileStorage("", true)
+	store := mustFileStorage(t, "", true, true)
 	store.UpdateGauge("Alloc", 1)
 	if err := store.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -150,7 +136,7 @@ func TestFileStorageEmptyPath(t *testing.T) {
 
 func TestFileStorageFlushEvery(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "metrics.json")
-	store := NewFileStorage(path, false)
+	store := mustFileStorage(t, path, false, false)
 	store.UpdateGauge("Alloc", 3)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -173,6 +159,15 @@ func TestFileStorageFlushEvery(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("metrics were not flushed")
+}
+
+func mustFileStorage(t *testing.T, path string, synchronous, restore bool) *FileStorage {
+	t.Helper()
+	store, err := NewFileStorage(zap.NewNop(), path, synchronous, restore)
+	if err != nil {
+		t.Fatalf("NewFileStorage() error = %v", err)
+	}
+	return store
 }
 
 func readMetricsFile(t *testing.T, path string) []model.Metrics {

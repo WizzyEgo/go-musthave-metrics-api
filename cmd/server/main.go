@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,17 +20,31 @@ import (
 )
 
 func main() {
-	cfg := config.ParseServer()
-	defer func() { _ = logger.Log.Sync() }()
+	os.Exit(run())
+}
 
-	store := storage.NewFileStorage(cfg.FileStoragePath, cfg.StoreInterval == 0)
-	if cfg.Restore {
-		if err := store.Load(); err != nil {
-			logger.Log.Error("failed to restore metrics",
-				zap.String("path", cfg.FileStoragePath),
-				zap.Error(err),
-			)
+func run() int {
+	cfg, err := config.ParseServer()
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
 		}
+		fmt.Fprintf(os.Stderr, "parse config: %v\n", err)
+		return 2
+	}
+
+	log, err := logger.New(cfg.LogLevel)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "init logger: %v\n", err)
+		return 1
+	}
+	defer func() { _ = log.Sync() }()
+
+	log.Info("server starting", zap.String("address", cfg.Address))
+
+	store, err := storage.NewFileStorage(log.Named("storage"), cfg.FileStoragePath, cfg.StoreInterval == 0, cfg.Restore)
+	if err != nil {
+		log.Error("failed to restore metrics", zap.Error(err))
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -40,7 +56,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:    cfg.Address,
-		Handler: handler.MetricHandler(store),
+		Handler: handler.MetricHandler(log.Named("http"), store),
 	}
 
 	go func() {
@@ -48,16 +64,17 @@ func main() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
-			logger.Log.Error("failed to shutdown server", zap.Error(err))
+			log.Error("failed to shutdown server", zap.Error(err))
 		}
 	}()
 
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		logger.Log.Error("failed to start server", zap.Error(err))
-		panic(err)
+		log.Error("failed to start server", zap.Error(err))
+		return 1
 	}
 
 	if err := store.Save(); err != nil {
-		logger.Log.Error("failed to save metrics", zap.Error(err))
+		log.Error("failed to save metrics", zap.Error(err))
 	}
+	return 0
 }

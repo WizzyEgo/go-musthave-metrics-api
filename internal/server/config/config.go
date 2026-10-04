@@ -1,19 +1,14 @@
 package config
 
 import (
-	"errors"
 	"flag"
 	"io"
-	"net"
 	"os"
 	"reflect"
 	"strconv"
 	"time"
 
-	"github.com/caarlos0/env/v6"
-	"go.uber.org/zap"
-
-	"go-musthave-metrics-tpl/internal/server/logger"
+	"github.com/caarlos0/env/v11"
 )
 
 const (
@@ -38,26 +33,8 @@ type ServerConfig struct {
 	Restore         bool          `env:"RESTORE"`
 }
 
-func ParseServer() ServerConfig {
-	flags := os.Args[1:]
-	cfg, err := parseServer(flags, os.Stderr, nil)
-	exitOnFlagError(err)
-
-	if err := logger.Initialize(cfg.LogLevel); err != nil {
-		panic(err)
-	}
-	logStartup(cfg, flags)
-	return cfg
-}
-
-func exitOnFlagError(err error) {
-	if err == nil {
-		return
-	}
-	if errors.Is(err, flag.ErrHelp) {
-		os.Exit(0)
-	}
-	os.Exit(2)
+func ParseServer() (ServerConfig, error) {
+	return parseServer(os.Args[1:], os.Stderr, nil)
 }
 
 func parseServerFlags(args []string, output io.Writer) (ServerConfig, error) {
@@ -87,7 +64,10 @@ func parseServer(args []string, output io.Writer, environ map[string]string) (Se
 
 	cfg.StoreInterval = time.Duration(storeSec) * time.Second
 
-	if err := env.ParseWithFuncs(&cfg, secondsParsers(), env.Options{Environment: environ}); err != nil {
+	if err := env.ParseWithOptions(&cfg, env.Options{
+		Environment: environ,
+		FuncMap:     secondsParsers(),
+	}); err != nil {
 		return ServerConfig{}, err
 	}
 	applyFileStoragePath(&cfg, environ)
@@ -117,21 +97,4 @@ func secondsParsers() map[reflect.Type]env.ParserFunc {
 			return time.Duration(seconds) * time.Second, nil
 		},
 	}
-}
-
-func logStartup(cfg ServerConfig, flags []string) {
-	host, port, err := net.SplitHostPort(cfg.Address)
-	if err != nil {
-		host = cfg.Address
-		port = ""
-	}
-
-	logger.Log.Debug("server starting",
-		zap.String("address", host),
-		zap.String("port", port),
-		zap.Strings("flags", flags),
-		zap.Duration("store_interval", cfg.StoreInterval),
-		zap.String("file_storage_path", cfg.FileStoragePath),
-		zap.Bool("restore", cfg.Restore),
-	)
 }

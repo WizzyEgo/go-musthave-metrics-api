@@ -11,13 +11,13 @@ import (
 
 	"github.com/mailru/easyjson"
 
-	"go-musthave-metrics-tpl/internal/server/model"
+	"go-musthave-metrics-tpl/internal/model"
 )
 
 func TestRouterGzipJSONAndHTML(t *testing.T) {
 	store := newStubStorage()
 	store.UpdateGauge("Alloc", 42)
-	h := NewRouter(store)
+	h := NewRouter(nil, store)
 
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
@@ -92,7 +92,7 @@ func TestRouterGzipJSONAndHTML(t *testing.T) {
 func TestRouterDoesNotGzipPlainText(t *testing.T) {
 	store := newStubStorage()
 	store.UpdateGauge("Alloc", 42.5)
-	h := NewRouter(store)
+	h := NewRouter(nil, store)
 
 	req := httptest.NewRequest(http.MethodGet, "/value/gauge/Alloc", nil)
 	req.Header.Set("Accept-Encoding", "gzip")

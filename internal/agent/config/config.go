@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/caarlos0/env/v6"
+	"github.com/caarlos0/env/v11"
 )
 
 const (
@@ -72,7 +72,10 @@ func parseAgent(args []string, output io.Writer, environ map[string]string) (Age
 	cfg.PollInterval = time.Duration(pollSec) * time.Second
 	cfg.ReportInterval = time.Duration(reportSec) * time.Second
 
-	if err := env.ParseWithFuncs(&cfg, secondsParsers(), env.Options{Environment: environ}); err != nil {
+	if err := env.ParseWithOptions(&cfg, env.Options{
+		Environment: environ,
+		FuncMap:     secondsParsers(),
+	}); err != nil {
 		return AgentConfig{}, err
 	}
 	return cfg, nil
