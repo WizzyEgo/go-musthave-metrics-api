@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"go-musthave-metrics-tpl/internal/storage"
+	"go-musthave-metrics-tpl/internal/server/storage"
 )
 
 type stubStorage struct {

@@ -1,4 +1,4 @@
-# internal/config/db
+# internal/server/config/db
 
 Описание конфигурации подключения к базе данных.
 

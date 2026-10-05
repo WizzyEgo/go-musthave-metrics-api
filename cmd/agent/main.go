@@ -1,11 +1,11 @@
 package main
 
 import (
-	"go-musthave-metrics-tpl/internal/agent"
-	"go-musthave-metrics-tpl/internal/config"
+	"go-musthave-metrics-tpl/internal/agent/config"
+	"go-musthave-metrics-tpl/internal/agent/service"
 )
 
 func main() {
 	cfg := config.ParseAgent()
-	agent.New(cfg).Run()
+	service.New(cfg).Run()
 }
