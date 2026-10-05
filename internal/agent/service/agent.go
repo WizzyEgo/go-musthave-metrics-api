@@ -2,17 +2,21 @@ package service
 
 import (
 	"bytes"
-	"compress/gzip"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
 	"net/http"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/mailru/easyjson"
+	"go.uber.org/zap"
 
-	"go-musthave-metrics-tpl/internal/server/model"
+	"go-musthave-metrics-tpl/internal/compress"
+	"go-musthave-metrics-tpl/internal/model"
 )
 
 func (s *Service) collect() map[string]float64 {
@@ -59,48 +63,66 @@ func (s *Service) Collect() {
 }
 
 func (s *Service) Report() {
+	s.report(context.Background())
+}
+
+func (s *Service) report(ctx context.Context) {
 	gauges, counters := s.metrics.Snapshot()
 
 	for name, value := range gauges {
+		if ctx.Err() != nil {
+			return
+		}
 		v := value
-		_ = s.sendMetric(model.Metrics{
+		if err := s.sendMetric(ctx, model.Metrics{
 			ID:    name,
 			MType: model.Gauge,
 			Value: &v,
-		})
+		}); err != nil {
+			s.logSendError(model.Gauge, name, err)
+		}
 	}
 
 	for name, value := range counters {
+		if ctx.Err() != nil {
+			return
+		}
 		delta := value
-		if err := s.sendMetric(model.Metrics{
+		if err := s.sendMetric(ctx, model.Metrics{
 			ID:    name,
 			MType: model.Counter,
 			Delta: &delta,
-		}); err == nil {
-			s.metrics.SubCounter(name, value)
+		}); err != nil {
+			s.logSendError(model.Counter, name, err)
+			continue
 		}
+		s.metrics.SubCounter(name, value)
 	}
 }
 
-func (s *Service) sendMetric(metric model.Metrics) error {
+func (s *Service) logSendError(metricType, name string, err error) {
+	if errors.Is(err, context.Canceled) {
+		return
+	}
+	s.log.Error("failed to send metric",
+		zap.String("type", metricType),
+		zap.String("id", name),
+		zap.Error(err),
+	)
+}
+
+func (s *Service) sendMetric(ctx context.Context, metric model.Metrics) error {
 	payload, err := easyjson.Marshal(metric)
 	if err != nil {
 		return err
 	}
 
-	var buf bytes.Buffer
-	zw, err := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
+	compressed, err := compress.Encode(payload)
 	if err != nil {
 		return err
 	}
-	if _, err = zw.Write(payload); err != nil {
-		return err
-	}
-	if err = zw.Close(); err != nil {
-		return err
-	}
 
-	req, err := http.NewRequest(http.MethodPost, s.serverURL+"/update", &buf)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.serverURL+"/update", bytes.NewReader(compressed))
 	if err != nil {
 		return err
 	}
@@ -120,16 +142,29 @@ func (s *Service) sendMetric(metric model.Metrics) error {
 	return nil
 }
 
-func (s *Service) Run() {
+func (s *Service) Run(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Add(2)
 	go func() {
-		for {
-			time.Sleep(s.pollInterval)
-			s.Collect()
-		}
+		defer wg.Done()
+		s.loop(ctx, s.pollInterval, s.Collect)
 	}()
+	go func() {
+		defer wg.Done()
+		s.loop(ctx, s.reportInterval, func() { s.report(ctx) })
+	}()
+	wg.Wait()
+}
 
+func (s *Service) loop(ctx context.Context, interval time.Duration, fn func()) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 	for {
-		time.Sleep(s.reportInterval)
-		s.Report()
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			fn()
+		}
 	}
 }

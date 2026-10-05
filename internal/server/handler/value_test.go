@@ -11,7 +11,7 @@ func TestValueGaugeAndCounter(t *testing.T) {
 	store := newStubStorage()
 	store.UpdateGauge("Alloc", 123.45)
 	store.UpdateCounter("PollCount", 8)
-	handler := NewRouter(store)
+	handler := NewRouter(nil, store)
 
 	req := httptest.NewRequest(http.MethodGet, "/value/gauge/Alloc", nil)
 	rec := httptest.NewRecorder()
@@ -37,7 +37,7 @@ func TestValueGaugeAndCounter(t *testing.T) {
 }
 
 func TestValueUnknownMetric(t *testing.T) {
-	handler := NewRouter(newStubStorage())
+	handler := NewRouter(nil, newStubStorage())
 
 	tests := []struct {
 		name string
@@ -65,7 +65,7 @@ func TestIndexListsMetrics(t *testing.T) {
 	store := newStubStorage()
 	store.UpdateGauge("Alloc", 42)
 	store.UpdateCounter("PollCount", 3)
-	handler := NewRouter(store)
+	handler := NewRouter(nil, store)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()

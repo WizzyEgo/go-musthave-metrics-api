@@ -9,15 +9,16 @@ import (
 	"testing"
 
 	"github.com/mailru/easyjson"
+	"go.uber.org/zap"
 
 	"go-musthave-metrics-tpl/internal/agent/config"
+	"go-musthave-metrics-tpl/internal/model"
 	"go-musthave-metrics-tpl/internal/server/handler"
-	"go-musthave-metrics-tpl/internal/server/model"
 	"go-musthave-metrics-tpl/internal/server/storage"
 )
 
 func TestCollectReturnsRuntimeGauges(t *testing.T) {
-	s := New(config.DefaultAgent())
+	s := New(config.DefaultAgent(), zap.NewNop())
 	gauges := s.collect()
 
 	required := []string{
@@ -40,7 +41,7 @@ func TestCollectReturnsRuntimeGauges(t *testing.T) {
 }
 
 func TestCollectUpdatesRuntimeMetrics(t *testing.T) {
-	s := New(config.DefaultAgent())
+	s := New(config.DefaultAgent(), zap.NewNop())
 	s.Collect()
 
 	requiredGauges := []string{
@@ -53,12 +54,12 @@ func TestCollectUpdatesRuntimeMetrics(t *testing.T) {
 	}
 
 	for _, name := range requiredGauges {
-		if _, ok := s.GetMetrics().Gauge(name); !ok {
+		if _, ok := s.metrics.Gauge(name); !ok {
 			t.Errorf("gauge %q was not collected", name)
 		}
 	}
 
-	pollCount, ok := s.GetMetrics().Counter("PollCount")
+	pollCount, ok := s.metrics.Counter("PollCount")
 	if !ok {
 		t.Fatal("counter PollCount was not collected")
 	}
@@ -67,7 +68,7 @@ func TestCollectUpdatesRuntimeMetrics(t *testing.T) {
 	}
 
 	s.Collect()
-	pollCount, _ = s.GetMetrics().Counter("PollCount")
+	pollCount, _ = s.metrics.Counter("PollCount")
 	if pollCount != 2 {
 		t.Fatalf("PollCount after second collect = %d, want 2", pollCount)
 	}
@@ -123,8 +124,8 @@ func TestReportSendsMetrics(t *testing.T) {
 	}))
 	defer server.Close()
 
-	s := New(config.DefaultAgent())
-	s.SetServerURL(server.URL)
+	s := New(config.DefaultAgent(), zap.NewNop())
+	s.serverURL = server.URL
 	s.Collect()
 	s.Report()
 
@@ -153,7 +154,7 @@ func TestReportSendsMetrics(t *testing.T) {
 		t.Error("RandomValue was not sent")
 	}
 
-	pollCount, ok := s.GetMetrics().Counter("PollCount")
+	pollCount, ok := s.metrics.Counter("PollCount")
 	if !ok {
 		t.Fatal("PollCount missing after report")
 	}
@@ -164,14 +165,14 @@ func TestReportSendsMetrics(t *testing.T) {
 
 func TestReportStoresMetricsOnServer(t *testing.T) {
 	store := storage.NewMemStorage()
-	server := httptest.NewServer(handler.NewRouter(store))
+	server := httptest.NewServer(handler.NewRouter(nil, store))
 	defer server.Close()
 
-	s := New(config.DefaultAgent())
-	s.SetServerURL(server.URL)
+	s := New(config.DefaultAgent(), zap.NewNop())
+	s.serverURL = server.URL
 	s.Collect()
 
-	gauges, counters := s.GetMetrics().Snapshot()
+	gauges, counters := s.metrics.Snapshot()
 	s.Report()
 
 	for name, value := range gauges {

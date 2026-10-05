@@ -5,7 +5,7 @@ import (
 
 	"github.com/mailru/easyjson"
 
-	"go-musthave-metrics-tpl/internal/server/model"
+	"go-musthave-metrics-tpl/internal/model"
 	"go-musthave-metrics-tpl/internal/server/storage"
 )
 
