@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/mailru/easyjson"
 	"go.uber.org/zap"
@@ -75,14 +77,14 @@ func TestCollectUpdatesRuntimeMetrics(t *testing.T) {
 }
 
 func TestReportSendsMetrics(t *testing.T) {
-	var requests []model.Metrics
+	var requests []model.MetricsList
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("method = %s, want POST", r.Method)
 		}
-		if r.URL.Path != "/update" {
-			t.Errorf("path = %s, want /update", r.URL.Path)
+		if r.URL.Path != "/updates/" {
+			t.Errorf("path = %s, want /updates/", r.URL.Path)
 		}
 		if ct := r.Header.Get("Content-Type"); ct != "application/json" {
 			t.Errorf("Content-Type = %q, want application/json", ct)
@@ -101,24 +103,34 @@ func TestReportSendsMetrics(t *testing.T) {
 			t.Errorf("read body: %v", err)
 		}
 		_ = zr.Close()
-		var metric model.Metrics
-		if err := easyjson.Unmarshal(body, &metric); err != nil {
+		var batch model.MetricsList
+		if err := easyjson.Unmarshal(body, &batch); err != nil {
 			t.Errorf("unmarshal body: %v", err)
+			return
 		}
-		raw := string(body)
-		switch metric.MType {
-		case model.Gauge:
-			if metric.Value == nil || strings.Contains(raw, `"delta"`) {
-				t.Errorf("gauge %s body = %s", metric.ID, raw)
-			}
-		case model.Counter:
-			if metric.Delta == nil || strings.Contains(raw, `"value"`) {
-				t.Errorf("counter %s body = %s", metric.ID, raw)
-			}
-		default:
-			t.Errorf("unexpected metric type %q", metric.MType)
+		if len(batch) == 0 {
+			t.Error("agent sent an empty batch")
 		}
-		requests = append(requests, metric)
+		for _, metric := range batch {
+			raw, err := easyjson.Marshal(metric)
+			if err != nil {
+				t.Errorf("marshal metric: %v", err)
+				continue
+			}
+			switch metric.MType {
+			case model.Gauge:
+				if metric.Value == nil || strings.Contains(string(raw), `"delta"`) {
+					t.Errorf("gauge %s body = %s", metric.ID, raw)
+				}
+			case model.Counter:
+				if metric.Delta == nil || strings.Contains(string(raw), `"value"`) {
+					t.Errorf("counter %s body = %s", metric.ID, raw)
+				}
+			default:
+				t.Errorf("unexpected metric type %q", metric.MType)
+			}
+		}
+		requests = append(requests, batch)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -129,13 +141,13 @@ func TestReportSendsMetrics(t *testing.T) {
 	s.Collect()
 	s.Report()
 
-	if len(requests) == 0 {
-		t.Fatal("expected at least one request to the server")
+	if len(requests) != 1 {
+		t.Fatalf("requests = %d, want 1", len(requests))
 	}
 
 	foundPollCount := false
 	foundRandomValue := false
-	for _, metric := range requests {
+	for _, metric := range requests[0] {
 		if metric.MType == model.Counter && metric.ID == "PollCount" {
 			foundPollCount = true
 			if metric.Delta == nil || *metric.Delta != 1 {
@@ -186,5 +198,82 @@ func TestReportStoresMetricsOnServer(t *testing.T) {
 		if !ok || got != value {
 			t.Errorf("server counter %s = (%v, %v), want %v", name, got, ok, value)
 		}
+	}
+}
+
+func TestReportSkipsEmptyBatch(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	s := New(config.DefaultAgent(), zap.NewNop())
+	s.serverURL = server.URL
+	s.Report()
+
+	if called {
+		t.Fatal("empty batch must not be sent")
+	}
+}
+
+func TestReportKeepsCountersWhenSendFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	s := New(config.DefaultAgent(), zap.NewNop())
+	s.serverURL = server.URL
+	s.Collect()
+	s.Report()
+
+	pollCount, ok := s.metrics.Counter("PollCount")
+	if !ok || pollCount != 1 {
+		t.Fatalf("PollCount = (%d, %v), want (1, true)", pollCount, ok)
+	}
+}
+
+func TestReportKeepsCountersCollectedDuringSend(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		once.Do(func() { close(started) })
+		<-release
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	s := New(config.DefaultAgent(), zap.NewNop())
+	s.serverURL = server.URL
+	s.Collect()
+
+	done := make(chan struct{})
+	go func() {
+		s.Report()
+		close(done)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("report did not reach the server")
+	}
+
+	s.Collect()
+	close(release)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("report did not finish")
+	}
+
+	pollCount, ok := s.metrics.Counter("PollCount")
+	if !ok || pollCount != 1 {
+		t.Fatalf("PollCount = (%d, %v), want (1, true)", pollCount, ok)
 	}
 }

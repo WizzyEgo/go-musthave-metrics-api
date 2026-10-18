@@ -81,6 +81,21 @@ func (s *FileStorage) GetAll() (map[string]float64, map[string]int64) {
 	return s.mem.GetAll()
 }
 
+// UpdateBatch меняет все метрики и, в синхронном режиме, один раз сохраняет файл.
+func (s *FileStorage) UpdateBatch(metrics []model.Metrics) ([]model.Metrics, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	updated, err := s.mem.UpdateBatch(metrics)
+	if err != nil {
+		return nil, err
+	}
+	if len(metrics) > 0 {
+		s.saveSynced()
+	}
+	return updated, nil
+}
+
 func (s *FileStorage) Load() error {
 	if s.path == "" {
 		return nil

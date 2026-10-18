@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -159,6 +160,42 @@ func TestFileStorageFlushEvery(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("metrics were not flushed")
+}
+
+func TestFileStorageUpdateBatch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "metrics.json")
+	store := mustFileStorage(t, path, true, false)
+
+	value := 3.5
+	delta := int64(4)
+	updated, err := store.UpdateBatch([]model.Metrics{
+		{ID: "Alloc", MType: model.Gauge, Value: &value},
+		{ID: "PollCount", MType: model.Counter, Delta: &delta},
+	})
+	if err != nil {
+		t.Fatalf("UpdateBatch() error = %v", err)
+	}
+	if len(updated) != 2 || updated[1].Delta == nil || *updated[1].Delta != 4 {
+		t.Fatalf("updated = %+v", updated)
+	}
+
+	restored := mustFileStorage(t, path, false, true)
+	gauge, ok := restored.GetGauge("Alloc")
+	if !ok || gauge != 3.5 {
+		t.Fatalf("Alloc = (%v, %v), want (3.5, true)", gauge, ok)
+	}
+	counter, ok := restored.GetCounter("PollCount")
+	if !ok || counter != 4 {
+		t.Fatalf("PollCount = (%d, %v), want (4, true)", counter, ok)
+	}
+
+	_, err = store.UpdateBatch([]model.Metrics{{ID: "Sys", MType: model.Gauge}})
+	if !errors.Is(err, ErrInvalidMetric) {
+		t.Fatalf("invalid UpdateBatch() error = %v", err)
+	}
+	if _, ok := store.GetGauge("Sys"); ok {
+		t.Fatal("invalid batch stored Sys")
+	}
 }
 
 func mustFileStorage(t *testing.T, path string, synchronous, restore bool) *FileStorage {

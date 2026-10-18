@@ -1,6 +1,12 @@
 package storage
 
-import "testing"
+import (
+	"errors"
+	"sync"
+	"testing"
+
+	"go-musthave-metrics-tpl/internal/model"
+)
 
 func TestMemStorageUpdateGauge(t *testing.T) {
 	store := NewMemStorage()
@@ -75,5 +81,79 @@ func TestMemStorageAll(t *testing.T) {
 	}
 	if got, _ := store.GetCounter("PollCount"); got != 2 {
 		t.Fatal("GetAll must return a copy of counters")
+	}
+}
+
+func TestMemStorageUpdateBatch(t *testing.T) {
+	store := NewMemStorage()
+	store.UpdateCounter("PollCount", 1)
+
+	value := 1.5
+	first := int64(2)
+	second := int64(3)
+	updated, err := store.UpdateBatch([]model.Metrics{
+		{ID: "Alloc", MType: model.Gauge, Value: &value},
+		{ID: "PollCount", MType: model.Counter, Delta: &first},
+		{ID: "PollCount", MType: model.Counter, Delta: &second},
+	})
+	if err != nil {
+		t.Fatalf("UpdateBatch() error = %v", err)
+	}
+	if len(updated) != 3 || updated[0].Value == nil || *updated[0].Value != 1.5 {
+		t.Fatalf("updated gauge = %+v", updated)
+	}
+	if updated[1].Delta == nil || *updated[1].Delta != 3 || updated[2].Delta == nil || *updated[2].Delta != 6 {
+		t.Fatalf("updated counters = %+v %+v", updated[1], updated[2])
+	}
+
+	got, ok := store.GetCounter("PollCount")
+	if !ok || got != 6 {
+		t.Fatalf("PollCount = (%d, %v), want (6, true)", got, ok)
+	}
+}
+
+func TestMemStorageUpdateBatchRejectsInvalidWithoutChanges(t *testing.T) {
+	store := NewMemStorage()
+	store.UpdateCounter("PollCount", 4)
+	value := 1.0
+	_, err := store.UpdateBatch([]model.Metrics{
+		{ID: "Alloc", MType: model.Gauge, Value: &value},
+		{ID: "Bad", MType: "unknown"},
+	})
+	if !errors.Is(err, ErrInvalidMetric) {
+		t.Fatalf("UpdateBatch() error = %v, want ErrInvalidMetric", err)
+	}
+	if _, ok := store.GetGauge("Alloc"); ok {
+		t.Fatal("invalid batch stored Alloc")
+	}
+	if got, _ := store.GetCounter("PollCount"); got != 4 {
+		t.Fatalf("PollCount = %d, want 4", got)
+	}
+}
+
+func TestMemStorageUpdateBatchConcurrent(t *testing.T) {
+	store := NewMemStorage()
+	const workers = 50
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			delta := int64(1)
+			value := 1.0
+			if _, err := store.UpdateBatch([]model.Metrics{
+				{ID: "PollCount", MType: model.Counter, Delta: &delta},
+				{ID: "Alloc", MType: model.Gauge, Value: &value},
+			}); err != nil {
+				t.Errorf("UpdateBatch() error = %v", err)
+			}
+			store.GetAll()
+		}()
+	}
+	wg.Wait()
+
+	got, ok := store.GetCounter("PollCount")
+	if !ok || got != workers {
+		t.Fatalf("PollCount = (%d, %v), want (%d, true)", got, ok, workers)
 	}
 }
