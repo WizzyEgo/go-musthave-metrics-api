@@ -10,18 +10,24 @@ import (
 	"go-musthave-metrics-tpl/internal/server/storage"
 )
 
-func MetricHandler(log *zap.Logger, store storage.Storage) http.Handler {
-	return NewRouter(log, store)
+func MetricHandler(log *zap.Logger, store storage.Storage, pinger ...Pinger) http.Handler {
+	return NewRouter(log, store, pinger...)
 }
 
-func NewRouter(log *zap.Logger, store storage.Storage) http.Handler {
+func NewRouter(log *zap.Logger, store storage.Storage, pinger ...Pinger) http.Handler {
 	if log == nil {
 		log = zap.NewNop()
+	}
+
+	var db Pinger
+	if len(pinger) > 0 {
+		db = pinger[0]
 	}
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestLogger(log))
 	r.Use(middleware.Gzip)
+	r.Get("/ping", Ping(db))
 	r.Post("/update/{type}/{name}/{value}", Update(store))
 	r.Post("/update", UpdateJSON(store))
 	r.Post("/update/", UpdateJSON(store))

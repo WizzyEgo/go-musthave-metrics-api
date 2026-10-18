@@ -27,6 +27,9 @@ func TestParseServerFlagsDefaults(t *testing.T) {
 	if cfg.Restore != DefaultRestore {
 		t.Fatalf("Restore = %v, want %v", cfg.Restore, DefaultRestore)
 	}
+	if cfg.DatabaseDSN != "" {
+		t.Fatalf("DatabaseDSN = %q, want empty", cfg.DatabaseDSN)
+	}
 }
 
 func TestParseServerFlagsAddress(t *testing.T) {
@@ -201,6 +204,41 @@ func TestParseServerInvalidRestore(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid RESTORE")
+	}
+}
+
+func TestParseServerDatabaseDSNFlag(t *testing.T) {
+	dsn := "postgres://user:pass@localhost:5432/metrics?sslmode=disable"
+	cfg, err := parseServerFlags([]string{"-d=" + dsn}, io.Discard)
+	if err != nil {
+		t.Fatalf("parseServerFlags() error = %v", err)
+	}
+	if cfg.DatabaseDSN != dsn {
+		t.Fatalf("DatabaseDSN = %q, want %q", cfg.DatabaseDSN, dsn)
+	}
+}
+
+func TestParseServerDatabaseDSNEnvOverridesFlag(t *testing.T) {
+	cfg, err := parseServer([]string{"-d=postgres://flag"}, io.Discard, map[string]string{
+		"DATABASE_DSN": "postgres://env",
+	})
+	if err != nil {
+		t.Fatalf("parseServer() error = %v", err)
+	}
+	if cfg.DatabaseDSN != "postgres://env" {
+		t.Fatalf("DatabaseDSN = %q, want postgres://env", cfg.DatabaseDSN)
+	}
+}
+
+func TestParseServerDatabaseDSNEnvOnly(t *testing.T) {
+	cfg, err := parseServer(nil, io.Discard, map[string]string{
+		"DATABASE_DSN": "postgres://only-env",
+	})
+	if err != nil {
+		t.Fatalf("parseServer() error = %v", err)
+	}
+	if cfg.DatabaseDSN != "postgres://only-env" {
+		t.Fatalf("DatabaseDSN = %q, want postgres://only-env", cfg.DatabaseDSN)
 	}
 }
 

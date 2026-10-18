@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"go-musthave-metrics-tpl/internal/server/config"
+	"go-musthave-metrics-tpl/internal/server/database"
 	"go-musthave-metrics-tpl/internal/server/handler"
 	"go-musthave-metrics-tpl/internal/server/logger"
 	"go-musthave-metrics-tpl/internal/server/storage"
@@ -47,6 +48,12 @@ func run() int {
 		log.Error("failed to restore metrics", zap.Error(err))
 	}
 
+	db, err := openDatabase(cfg.DatabaseDSN)
+	if err != nil {
+		log.Error("failed to open database", zap.Error(err))
+	}
+	defer func() { _ = db.Close() }()
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -56,7 +63,7 @@ func run() int {
 
 	srv := &http.Server{
 		Addr:    cfg.Address,
-		Handler: handler.MetricHandler(log.Named("http"), store),
+		Handler: handler.MetricHandler(log.Named("http"), store, db),
 	}
 
 	go func() {
@@ -77,4 +84,11 @@ func run() int {
 		log.Error("failed to save metrics", zap.Error(err))
 	}
 	return 0
+}
+
+func openDatabase(dsn string) (*database.Client, error) {
+	if dsn == "" {
+		return nil, nil
+	}
+	return database.Open(dsn)
 }
