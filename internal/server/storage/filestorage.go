@@ -49,49 +49,59 @@ func NewFileStorage(log *zap.Logger, path string, synchronous, restore bool) (*F
 	return store, nil
 }
 
-func (s *FileStorage) UpdateGauge(name string, value float64) {
+func (s *FileStorage) Ping(context.Context) error {
+	return nil
+}
+
+func (s *FileStorage) UpdateGauge(ctx context.Context, name string, value float64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.mem.UpdateGauge(name, value)
-	s.saveSynced()
+	if err := s.mem.UpdateGauge(ctx, name, value); err != nil {
+		return err
+	}
+	return s.saveSynced(ctx)
 }
 
-func (s *FileStorage) UpdateCounter(name string, value int64) {
+func (s *FileStorage) UpdateCounter(ctx context.Context, name string, value int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.mem.UpdateCounter(name, value)
-	s.saveSynced()
+	if err := s.mem.UpdateCounter(ctx, name, value); err != nil {
+		return err
+	}
+	return s.saveSynced(ctx)
 }
 
-func (s *FileStorage) GetGauge(name string) (float64, bool) {
+func (s *FileStorage) GetGauge(ctx context.Context, name string) (float64, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.mem.GetGauge(name)
+	return s.mem.GetGauge(ctx, name)
 }
 
-func (s *FileStorage) GetCounter(name string) (int64, bool) {
+func (s *FileStorage) GetCounter(ctx context.Context, name string) (int64, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.mem.GetCounter(name)
+	return s.mem.GetCounter(ctx, name)
 }
 
-func (s *FileStorage) GetAll() (map[string]float64, map[string]int64) {
+func (s *FileStorage) GetAll(ctx context.Context) (map[string]float64, map[string]int64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.mem.GetAll()
+	return s.mem.GetAll(ctx)
 }
 
 // UpdateBatch меняет все метрики и, в синхронном режиме, один раз сохраняет файл.
-func (s *FileStorage) UpdateBatch(metrics []model.Metrics) ([]model.Metrics, error) {
+func (s *FileStorage) UpdateBatch(ctx context.Context, metrics []model.Metrics) ([]model.Metrics, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	updated, err := s.mem.UpdateBatch(metrics)
+	updated, err := s.mem.UpdateBatch(ctx, metrics)
 	if err != nil {
 		return nil, err
 	}
 	if len(metrics) > 0 {
-		s.saveSynced()
+		if err := s.saveSynced(ctx); err != nil {
+			return nil, err
+		}
 	}
 	return updated, nil
 }
@@ -120,7 +130,9 @@ func (s *FileStorage) Load() error {
 		switch metric.MType {
 		case model.Gauge:
 			if metric.Value != nil {
-				s.mem.UpdateGauge(metric.ID, *metric.Value)
+				if err := s.mem.UpdateGauge(context.Background(), metric.ID, *metric.Value); err != nil {
+					return err
+				}
 			}
 		case model.Counter:
 			if metric.Delta != nil {
@@ -138,7 +150,7 @@ func (s *FileStorage) Save() error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.writeUnlocked()
+	return s.writeUnlocked(context.Background())
 }
 
 func (s *FileStorage) FlushEvery(ctx context.Context, interval time.Duration) {
@@ -160,21 +172,19 @@ func (s *FileStorage) FlushEvery(ctx context.Context, interval time.Duration) {
 	}
 }
 
-func (s *FileStorage) saveSynced() {
+func (s *FileStorage) saveSynced(ctx context.Context) error {
 	if !s.synchronous {
-		return
+		return nil
 	}
-	if err := s.writeUnlocked(); err != nil {
-		s.log.Error("failed to save metrics", zap.Error(err))
-	}
+	return s.writeUnlocked(ctx)
 }
 
-func (s *FileStorage) writeUnlocked() error {
+func (s *FileStorage) writeUnlocked(ctx context.Context) error {
 	if s.path == "" {
 		return nil
 	}
 
-	gauges, counters := s.mem.GetAll()
+	gauges, counters := s.mem.GetAll(ctx)
 	metrics := make([]model.Metrics, 0, len(gauges)+len(counters))
 	for name, value := range gauges {
 		v := value

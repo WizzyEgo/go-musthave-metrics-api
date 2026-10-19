@@ -2,6 +2,7 @@ package service
 
 import (
 	"compress/gzip"
+	"context"
 	"io"
 	"net"
 	"net/http"
@@ -191,13 +192,13 @@ func TestReportStoresMetricsOnServer(t *testing.T) {
 	s.Report()
 
 	for name, value := range gauges {
-		got, ok := store.GetGauge(name)
+		got, ok := store.GetGauge(context.Background(), name)
 		if !ok || got != value {
 			t.Errorf("server gauge %s = (%v, %v), want %v", name, got, ok, value)
 		}
 	}
 	for name, value := range counters {
-		got, ok := store.GetCounter(name)
+		got, ok := store.GetCounter(context.Background(), name)
 		if !ok || got != value {
 			t.Errorf("server counter %s = (%v, %v), want %v", name, got, ok, value)
 		}
@@ -255,7 +256,11 @@ func TestReportRetriesConnectionError(t *testing.T) {
 	var calls atomic.Int32
 	s := New(config.DefaultAgent(), zap.NewNop())
 	s.serverURL = server.URL
-	s.client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+	transport, ok := s.client.Transport.(*retryTransport)
+	if !ok {
+		t.Fatal("client transport is not retryTransport")
+	}
+	transport.base = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if calls.Add(1) == 1 {
 			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
 		}

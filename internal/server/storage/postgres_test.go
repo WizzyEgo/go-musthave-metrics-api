@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"errors"
 	"os"
 	"testing"
@@ -29,21 +30,21 @@ func TestPostgresStorageRoundTrip(t *testing.T) {
 		t.Fatalf("NewPostgresStorage() error = %v", err)
 	}
 
-	store.UpdateGauge("Alloc", 1.5)
-	store.UpdateGauge("Alloc", 2.25)
-	store.UpdateCounter("PollCount", 2)
-	store.UpdateCounter("PollCount", 3)
+	store.UpdateGauge(context.Background(), "Alloc", 1.5)
+	store.UpdateGauge(context.Background(), "Alloc", 2.25)
+	store.UpdateCounter(context.Background(), "PollCount", 2)
+	store.UpdateCounter(context.Background(), "PollCount", 3)
 
-	gauge, ok := store.GetGauge("Alloc")
+	gauge, ok := store.GetGauge(context.Background(), "Alloc")
 	if !ok || gauge != 2.25 {
 		t.Fatalf("GetGauge() = (%v, %v), want (2.25, true)", gauge, ok)
 	}
-	counter, ok := store.GetCounter("PollCount")
+	counter, ok := store.GetCounter(context.Background(), "PollCount")
 	if !ok || counter != 5 {
 		t.Fatalf("GetCounter() = (%v, %v), want (5, true)", counter, ok)
 	}
 
-	gauges, counters := store.GetAll()
+	gauges, counters := store.GetAll(context.Background())
 	if gauges["Alloc"] != 2.25 {
 		t.Fatalf("GetAll gauges Alloc = %v, want 2.25", gauges["Alloc"])
 	}
@@ -53,7 +54,7 @@ func TestPostgresStorageRoundTrip(t *testing.T) {
 
 	value := 9.0
 	delta := int64(1)
-	updated, err := store.UpdateBatch([]model.Metrics{
+	updated, err := store.UpdateBatch(context.Background(), []model.Metrics{
 		{ID: "Alloc", MType: model.Gauge, Value: &value},
 		{ID: "PollCount", MType: model.Counter, Delta: &delta},
 		{ID: "PollCount", MType: model.Counter, Delta: &delta},
@@ -67,16 +68,16 @@ func TestPostgresStorageRoundTrip(t *testing.T) {
 	if updated[1].Delta == nil || *updated[1].Delta != 6 || updated[2].Delta == nil || *updated[2].Delta != 7 {
 		t.Fatalf("batch counters = %+v %+v", updated[1], updated[2])
 	}
-	counter, ok = store.GetCounter("PollCount")
+	counter, ok = store.GetCounter(context.Background(), "PollCount")
 	if !ok || counter != 7 {
 		t.Fatalf("PollCount after batch = (%d, %v), want (7, true)", counter, ok)
 	}
 
-	_, err = store.UpdateBatch([]model.Metrics{{ID: "Alloc", MType: model.Gauge}})
+	_, err = store.UpdateBatch(context.Background(), []model.Metrics{{ID: "Alloc", MType: model.Gauge}})
 	if !errors.Is(err, ErrInvalidMetric) {
 		t.Fatalf("invalid UpdateBatch() error = %v", err)
 	}
-	gauge, ok = store.GetGauge("Alloc")
+	gauge, ok = store.GetGauge(context.Background(), "Alloc")
 	if !ok || gauge != 9 {
 		t.Fatalf("Alloc after invalid batch = (%v, %v), want (9, true)", gauge, ok)
 	}

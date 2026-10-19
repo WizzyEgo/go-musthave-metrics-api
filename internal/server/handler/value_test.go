@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,8 +10,8 @@ import (
 
 func TestValueGaugeAndCounter(t *testing.T) {
 	store := newStubStorage()
-	store.UpdateGauge("Alloc", 123.45)
-	store.UpdateCounter("PollCount", 8)
+	store.UpdateGauge(context.Background(), "Alloc", 123.45)
+	store.UpdateCounter(context.Background(), "PollCount", 8)
 	handler := NewRouter(nil, store)
 
 	req := httptest.NewRequest(http.MethodGet, "/value/gauge/Alloc", nil)
@@ -63,8 +64,8 @@ func TestValueUnknownMetric(t *testing.T) {
 
 func TestIndexListsMetrics(t *testing.T) {
 	store := newStubStorage()
-	store.UpdateGauge("Alloc", 42)
-	store.UpdateCounter("PollCount", 3)
+	store.UpdateGauge(context.Background(), "Alloc", 42)
+	store.UpdateCounter(context.Background(), "PollCount", 3)
 	handler := NewRouter(nil, store)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)

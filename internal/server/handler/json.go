@@ -4,12 +4,16 @@ import (
 	"net/http"
 
 	"github.com/mailru/easyjson"
+	"go.uber.org/zap"
 
 	"go-musthave-metrics-tpl/internal/model"
 	"go-musthave-metrics-tpl/internal/server/storage"
 )
 
-func UpdateJSON(store storage.Storage) http.HandlerFunc {
+func UpdateJSON(log *zap.Logger, store storage.Storage) http.HandlerFunc {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		var metric model.Metrics
 		if err := easyjson.UnmarshalFromReader(r.Body, &metric); err != nil {
@@ -27,17 +31,23 @@ func UpdateJSON(store storage.Storage) http.HandlerFunc {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			store.UpdateGauge(metric.ID, *metric.Value)
+			if err := store.UpdateGauge(r.Context(), metric.ID, *metric.Value); err != nil {
+				writeInternalError(log, w, "failed to update gauge", err)
+				return
+			}
 			metric.Delta = nil
 		case model.Counter:
 			if metric.Delta == nil {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			store.UpdateCounter(metric.ID, *metric.Delta)
-			value, ok := store.GetCounter(metric.ID)
+			if err := store.UpdateCounter(r.Context(), metric.ID, *metric.Delta); err != nil {
+				writeInternalError(log, w, "failed to update counter", err)
+				return
+			}
+			value, ok := store.GetCounter(r.Context(), metric.ID)
 			if !ok {
-				w.WriteHeader(http.StatusInternalServerError)
+				writeInternalError(log, w, "failed to read counter after update", nil)
 				return
 			}
 			metric.Delta = &value
@@ -47,11 +57,14 @@ func UpdateJSON(store storage.Storage) http.HandlerFunc {
 			return
 		}
 
-		writeJSON(w, metric)
+		writeJSON(log, w, metric)
 	}
 }
 
-func ValueJSON(store storage.Storage) http.HandlerFunc {
+func ValueJSON(log *zap.Logger, store storage.Storage) http.HandlerFunc {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		var metric model.Metrics
 		if err := easyjson.UnmarshalFromReader(r.Body, &metric); err != nil {
@@ -61,7 +74,7 @@ func ValueJSON(store storage.Storage) http.HandlerFunc {
 
 		switch metric.MType {
 		case model.Gauge:
-			value, ok := store.GetGauge(metric.ID)
+			value, ok := store.GetGauge(r.Context(), metric.ID)
 			if !ok {
 				w.WriteHeader(http.StatusNotFound)
 				return
@@ -69,7 +82,7 @@ func ValueJSON(store storage.Storage) http.HandlerFunc {
 			metric.Value = &value
 			metric.Delta = nil
 		case model.Counter:
-			value, ok := store.GetCounter(metric.ID)
+			value, ok := store.GetCounter(r.Context(), metric.ID)
 			if !ok {
 				w.WriteHeader(http.StatusNotFound)
 				return
@@ -81,14 +94,14 @@ func ValueJSON(store storage.Storage) http.HandlerFunc {
 			return
 		}
 
-		writeJSON(w, metric)
+		writeJSON(log, w, metric)
 	}
 }
 
-func writeJSON(w http.ResponseWriter, v easyjson.Marshaler) {
+func writeJSON(log *zap.Logger, w http.ResponseWriter, v easyjson.Marshaler) {
 	payload, err := easyjson.Marshal(v)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+		writeInternalError(log, w, "failed to encode response", err)
 		return
 	}
 

@@ -5,12 +5,16 @@ import (
 	"net/http"
 
 	"github.com/mailru/easyjson"
+	"go.uber.org/zap"
 
 	"go-musthave-metrics-tpl/internal/model"
 	"go-musthave-metrics-tpl/internal/server/storage"
 )
 
-func Updates(store storage.Storage) http.HandlerFunc {
+func Updates(log *zap.Logger, store storage.Storage) http.HandlerFunc {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		var metrics model.MetricsList
 		if err := easyjson.UnmarshalFromReader(r.Body, &metrics); err != nil || metrics == nil {
@@ -18,22 +22,22 @@ func Updates(store storage.Storage) http.HandlerFunc {
 			return
 		}
 
-		updated, err := store.UpdateBatch(metrics)
+		updated, err := store.UpdateBatch(r.Context(), metrics)
 		if err != nil {
-			writeBatchError(w, err)
+			writeBatchError(log, w, err)
 			return
 		}
-		writeJSON(w, model.MetricsList(updated))
+		writeJSON(log, w, model.MetricsList(updated))
 	}
 }
 
-func writeBatchError(w http.ResponseWriter, err error) {
+func writeBatchError(log *zap.Logger, w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, storage.ErrEmptyMetricID):
 		w.WriteHeader(http.StatusNotFound)
 	case errors.Is(err, storage.ErrInvalidMetric):
 		w.WriteHeader(http.StatusBadRequest)
 	default:
-		w.WriteHeader(http.StatusInternalServerError)
+		writeInternalError(log, w, "failed to update metrics batch", err)
 	}
 }

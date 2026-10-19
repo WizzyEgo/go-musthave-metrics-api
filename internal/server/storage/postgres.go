@@ -31,8 +31,8 @@ func NewPostgresStorage(db *sql.DB, log *zap.Logger) (*PostgresStorage, error) {
 	return &PostgresStorage{db: db, log: log}, nil
 }
 
-func (s *PostgresStorage) UpdateGauge(name string, value float64) {
-	err := s.withRetry(func(ctx context.Context) error {
+func (s *PostgresStorage) UpdateGauge(ctx context.Context, name string, value float64) error {
+	err := s.withRetry(ctx, func(ctx context.Context) error {
 		_, err := s.db.ExecContext(ctx, `
 			INSERT INTO metrics (id, mtype, value, delta)
 			VALUES ($1, $2, $3, NULL)
@@ -43,11 +43,13 @@ func (s *PostgresStorage) UpdateGauge(name string, value float64) {
 	})
 	if err != nil {
 		s.log.Error("failed to update gauge", zap.String("id", name), zap.Error(err))
+		return err
 	}
+	return nil
 }
 
-func (s *PostgresStorage) UpdateCounter(name string, value int64) {
-	err := s.withRetry(func(ctx context.Context) error {
+func (s *PostgresStorage) UpdateCounter(ctx context.Context, name string, value int64) error {
+	err := s.withRetry(ctx, func(ctx context.Context) error {
 		_, err := s.db.ExecContext(ctx, `
 			INSERT INTO metrics (id, mtype, delta, value)
 			VALUES ($1, $2, $3, NULL)
@@ -58,7 +60,18 @@ func (s *PostgresStorage) UpdateCounter(name string, value int64) {
 	})
 	if err != nil {
 		s.log.Error("failed to update counter", zap.String("id", name), zap.Error(err))
+		return err
 	}
+	return nil
+}
+
+func (s *PostgresStorage) Ping(ctx context.Context) error {
+	if s == nil || s.db == nil {
+		return errors.New("database is not configured")
+	}
+	return s.withRetry(ctx, func(ctx context.Context) error {
+		return s.db.PingContext(ctx)
+	})
 }
 
 const (
@@ -79,7 +92,7 @@ const (
 
 // UpdateBatch записывает набор метрик одной транзакцией.
 // Инкремент counter выполняется в SQL, поэтому параллельные обновления не теряют дельту.
-func (s *PostgresStorage) UpdateBatch(metrics []model.Metrics) ([]model.Metrics, error) {
+func (s *PostgresStorage) UpdateBatch(ctx context.Context, metrics []model.Metrics) ([]model.Metrics, error) {
 	if err := validateMetrics(metrics); err != nil {
 		return nil, err
 	}
@@ -88,7 +101,7 @@ func (s *PostgresStorage) UpdateBatch(metrics []model.Metrics) ([]model.Metrics,
 	}
 
 	var updated []model.Metrics
-	err := s.withRetry(func(ctx context.Context) error {
+	err := s.withRetry(ctx, func(ctx context.Context) error {
 		var err error
 		updated, err = s.updateBatchTx(ctx, metrics)
 		return err
@@ -145,16 +158,16 @@ func (s *PostgresStorage) updateBatchTx(ctx context.Context, metrics []model.Met
 	return updated, nil
 }
 
-func (s *PostgresStorage) GetGauge(name string) (float64, bool) {
+func (s *PostgresStorage) GetGauge(ctx context.Context, name string) (float64, bool) {
 	var value sql.NullFloat64
-	err := s.withRetry(func(ctx context.Context) error {
+	err := s.withRetry(ctx, func(ctx context.Context) error {
 		value = sql.NullFloat64{}
 		return s.db.QueryRowContext(ctx, `
 			SELECT value FROM metrics WHERE id = $1 AND mtype = $2
 		`, name, model.Gauge).Scan(&value)
 	})
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
+		if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, context.Canceled) {
 			s.log.Error("failed to get gauge", zap.String("id", name), zap.Error(err))
 		}
 		return 0, false
@@ -165,16 +178,16 @@ func (s *PostgresStorage) GetGauge(name string) (float64, bool) {
 	return value.Float64, true
 }
 
-func (s *PostgresStorage) GetCounter(name string) (int64, bool) {
+func (s *PostgresStorage) GetCounter(ctx context.Context, name string) (int64, bool) {
 	var delta sql.NullInt64
-	err := s.withRetry(func(ctx context.Context) error {
+	err := s.withRetry(ctx, func(ctx context.Context) error {
 		delta = sql.NullInt64{}
 		return s.db.QueryRowContext(ctx, `
 			SELECT delta FROM metrics WHERE id = $1 AND mtype = $2
 		`, name, model.Counter).Scan(&delta)
 	})
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
+		if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, context.Canceled) {
 			s.log.Error("failed to get counter", zap.String("id", name), zap.Error(err))
 		}
 		return 0, false
@@ -185,16 +198,18 @@ func (s *PostgresStorage) GetCounter(name string) (int64, bool) {
 	return delta.Int64, true
 }
 
-func (s *PostgresStorage) GetAll() (map[string]float64, map[string]int64) {
+func (s *PostgresStorage) GetAll(ctx context.Context) (map[string]float64, map[string]int64) {
 	gauges := map[string]float64{}
 	counters := map[string]int64{}
-	err := s.withRetry(func(ctx context.Context) error {
+	err := s.withRetry(ctx, func(ctx context.Context) error {
 		gauges = map[string]float64{}
 		counters = map[string]int64{}
 		return s.loadAll(ctx, gauges, counters)
 	})
 	if err != nil {
-		s.log.Error("failed to list metrics", zap.Error(err))
+		if !errors.Is(err, context.Canceled) {
+			s.log.Error("failed to list metrics", zap.Error(err))
+		}
 		return map[string]float64{}, map[string]int64{}
 	}
 	return gauges, counters
@@ -235,14 +250,17 @@ func (s *PostgresStorage) loadAll(ctx context.Context, gauges map[string]float64
 	return rows.Err()
 }
 
-func (s *PostgresStorage) withRetry(fn func(ctx context.Context) error) error {
+func (s *PostgresStorage) withRetry(ctx context.Context, fn func(ctx context.Context) error) error {
+	if ctx == nil {
+		ctx = context.TODO()
+	}
 	attempt := 0
-	return retry.Do(context.Background(), func() error {
+	return retry.Do(ctx, func() error {
 		attempt++
-		ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
+		attemptCtx, cancel := context.WithTimeout(ctx, dbTimeout)
 		defer cancel()
 
-		err := fn(ctx)
+		err := fn(attemptCtx)
 		if err == nil || !retry.Postgres(err) {
 			return err
 		}

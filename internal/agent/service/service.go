@@ -26,8 +26,10 @@ func New(cfg config.AgentConfig, log *zap.Logger) *Service {
 		log = zap.NewNop()
 	}
 	return &Service{
-		metrics:        model.NewAgent(),
-		client:         &http.Client{Timeout: 5 * time.Second},
+		metrics: model.NewAgent(),
+		client: &http.Client{
+			Transport: newRetryTransport(http.DefaultTransport, log),
+		},
 		log:            log,
 		serverURL:      "http://" + cfg.Address,
 		pollInterval:   cfg.PollInterval,

@@ -60,6 +60,8 @@ func TestPostgresError(t *testing.T) {
 		{name: "connection failure", err: &pgconn.PgError{Code: pgerrcode.ConnectionFailure}, want: true},
 		{name: "cannot connect", err: &pgconn.PgError{Code: pgerrcode.SQLClientUnableToEstablishSQLConnection}, want: true},
 		{name: "protocol violation", err: &pgconn.PgError{Code: pgerrcode.ProtocolViolation}, want: true},
+		{name: "serialization failure", err: &pgconn.PgError{Code: pgerrcode.SerializationFailure}, want: true},
+		{name: "deadlock", err: &pgconn.PgError{Code: pgerrcode.DeadlockDetected}, want: true},
 		{name: "conn closed", err: pgconn.ErrConnClosed, want: true},
 		{name: "bad conn", err: driver.ErrBadConn, want: true},
 		{name: "timeout", err: context.DeadlineExceeded, want: true},

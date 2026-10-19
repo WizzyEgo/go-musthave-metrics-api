@@ -1,23 +1,15 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
-type stubPinger struct {
-	err error
-}
-
-func (p stubPinger) Ping(context.Context) error {
-	return p.err
-}
-
 func TestPingOK(t *testing.T) {
-	h := NewRouter(nil, newStubStorage(), stubPinger{})
+	h := NewRouter(nil, newStubStorage())
 	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -28,7 +20,9 @@ func TestPingOK(t *testing.T) {
 }
 
 func TestPingUnavailable(t *testing.T) {
-	h := NewRouter(nil, newStubStorage(), stubPinger{err: errors.New("down")})
+	store := newStubStorage()
+	store.pingErr = errors.New("down")
+	h := NewRouter(nil, store)
 	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -36,15 +30,18 @@ func TestPingUnavailable(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
+	if body := strings.TrimSpace(rec.Body.String()); body != "" {
+		t.Fatalf("body = %q, want empty", body)
+	}
 }
 
-func TestPingWithoutDatabase(t *testing.T) {
+func TestPingInMemoryStorage(t *testing.T) {
 	h := NewRouter(nil, newStubStorage())
 	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 }

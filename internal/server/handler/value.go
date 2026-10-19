@@ -23,13 +23,13 @@ func Value(store storage.Storage) http.HandlerFunc {
 		switch metricType {
 		case model.Gauge:
 			var value float64
-			value, ok = store.GetGauge(metricName)
+			value, ok = store.GetGauge(r.Context(), metricName)
 			if ok {
 				body = strconv.FormatFloat(value, 'f', -1, 64)
 			}
 		case model.Counter:
 			var value int64
-			value, ok = store.GetCounter(metricName)
+			value, ok = store.GetCounter(r.Context(), metricName)
 			if ok {
 				body = strconv.FormatInt(value, 10)
 			}

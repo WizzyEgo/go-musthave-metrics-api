@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -17,7 +18,7 @@ func TestNewFallsBackToFile(t *testing.T) {
 		t.Fatal("file storage is nil")
 	}
 
-	store.UpdateGauge("Alloc", 42)
+	store.UpdateGauge(context.Background(), "Alloc", 42)
 	if err := file.Save(); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
@@ -26,7 +27,7 @@ func TestNewFallsBackToFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("restore New() error = %v", err)
 	}
-	value, ok := restored.GetGauge("Alloc")
+	value, ok := restored.GetGauge(context.Background(), "Alloc")
 	if !ok || value != 42 {
 		t.Fatalf("GetGauge() = (%v, %v), want (42, true)", value, ok)
 	}
@@ -41,8 +42,8 @@ func TestNewFallsBackToMemoryWhenFilePathEmpty(t *testing.T) {
 		t.Fatal("file storage is nil")
 	}
 
-	store.UpdateCounter("PollCount", 3)
-	value, ok := store.GetCounter("PollCount")
+	store.UpdateCounter(context.Background(), "PollCount", 3)
+	value, ok := store.GetCounter(context.Background(), "PollCount")
 	if !ok || value != 3 {
 		t.Fatalf("GetCounter() = (%v, %v), want (3, true)", value, ok)
 	}

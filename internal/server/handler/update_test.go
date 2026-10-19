@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -17,6 +18,7 @@ import (
 type stubStorage struct {
 	gauges   map[string]float64
 	counters map[string]int64
+	pingErr  error
 }
 
 func newStubStorage() *stubStorage {
@@ -26,25 +28,39 @@ func newStubStorage() *stubStorage {
 	}
 }
 
-func (s *stubStorage) UpdateGauge(name string, value float64) {
+func (s *stubStorage) UpdateGauge(ctx context.Context, name string, value float64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.gauges[name] = value
+	return nil
 }
 
-func (s *stubStorage) UpdateCounter(name string, value int64) {
+func (s *stubStorage) UpdateCounter(ctx context.Context, name string, value int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.counters[name] += value
+	return nil
 }
 
-func (s *stubStorage) GetGauge(name string) (float64, bool) {
+func (s *stubStorage) GetGauge(ctx context.Context, name string) (float64, bool) {
+	if err := ctx.Err(); err != nil {
+		return 0, false
+	}
 	value, ok := s.gauges[name]
 	return value, ok
 }
 
-func (s *stubStorage) GetCounter(name string) (int64, bool) {
+func (s *stubStorage) GetCounter(ctx context.Context, name string) (int64, bool) {
+	if err := ctx.Err(); err != nil {
+		return 0, false
+	}
 	value, ok := s.counters[name]
 	return value, ok
 }
 
-func (s *stubStorage) UpdateBatch(metrics []model.Metrics) ([]model.Metrics, error) {
+func (s *stubStorage) UpdateBatch(ctx context.Context, metrics []model.Metrics) ([]model.Metrics, error) {
 	for _, metric := range metrics {
 		if metric.ID == "" {
 			return nil, storage.ErrEmptyMetricID
@@ -67,11 +83,15 @@ func (s *stubStorage) UpdateBatch(metrics []model.Metrics) ([]model.Metrics, err
 	for i, metric := range metrics {
 		switch metric.MType {
 		case model.Gauge:
-			s.UpdateGauge(metric.ID, *metric.Value)
+			if err := s.UpdateGauge(ctx, metric.ID, *metric.Value); err != nil {
+				return nil, err
+			}
 			value := s.gauges[metric.ID]
 			updated[i] = model.Metrics{ID: metric.ID, MType: model.Gauge, Value: &value, Hash: metric.Hash}
 		case model.Counter:
-			s.UpdateCounter(metric.ID, *metric.Delta)
+			if err := s.UpdateCounter(ctx, metric.ID, *metric.Delta); err != nil {
+				return nil, err
+			}
 			delta := s.counters[metric.ID]
 			updated[i] = model.Metrics{ID: metric.ID, MType: model.Counter, Delta: &delta, Hash: metric.Hash}
 		}
@@ -79,7 +99,10 @@ func (s *stubStorage) UpdateBatch(metrics []model.Metrics) ([]model.Metrics, err
 	return updated, nil
 }
 
-func (s *stubStorage) GetAll() (map[string]float64, map[string]int64) {
+func (s *stubStorage) GetAll(ctx context.Context) (map[string]float64, map[string]int64) {
+	if err := ctx.Err(); err != nil {
+		return map[string]float64{}, map[string]int64{}
+	}
 	gauges := make(map[string]float64, len(s.gauges))
 	for name, value := range s.gauges {
 		gauges[name] = value
@@ -89,6 +112,13 @@ func (s *stubStorage) GetAll() (map[string]float64, map[string]int64) {
 		counters[name] = value
 	}
 	return gauges, counters
+}
+
+func (s *stubStorage) Ping(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return s.pingErr
 }
 
 func TestUpdateGauge(t *testing.T) {
@@ -179,7 +209,7 @@ func TestMetricHandler(t *testing.T) {
 func TestRouterLogsRequests(t *testing.T) {
 	core, recorded := observer.New(zapcore.InfoLevel)
 	store := newStubStorage()
-	store.UpdateGauge("SingletonAlloc", 1)
+	store.UpdateGauge(context.Background(), "SingletonAlloc", 1)
 	h := NewRouter(zap.New(core), store)
 
 	tests := []struct {

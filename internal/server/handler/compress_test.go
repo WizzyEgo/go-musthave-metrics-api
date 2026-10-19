@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +17,7 @@ import (
 
 func TestRouterGzipJSONAndHTML(t *testing.T) {
 	store := newStubStorage()
-	store.UpdateGauge("Alloc", 42)
+	store.UpdateGauge(context.Background(), "Alloc", 42)
 	h := NewRouter(nil, store)
 
 	var buf bytes.Buffer
@@ -91,7 +92,7 @@ func TestRouterGzipJSONAndHTML(t *testing.T) {
 
 func TestRouterDoesNotGzipPlainText(t *testing.T) {
 	store := newStubStorage()
-	store.UpdateGauge("Alloc", 42.5)
+	store.UpdateGauge(context.Background(), "Alloc", 42.5)
 	h := NewRouter(nil, store)
 
 	req := httptest.NewRequest(http.MethodGet, "/value/gauge/Alloc", nil)

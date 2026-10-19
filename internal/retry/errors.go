@@ -28,7 +28,8 @@ func Connection(err error) bool {
 }
 
 // Postgres — ошибка, после которой запрос к PostgreSQL можно повторить.
-// Class 08 (Connection Exception) определяется через pgerrcode.
+// Class 08 (Connection Exception) и class 40 (Transaction Rollback:
+// serialization_failure, deadlock_detected) определяются через pgerrcode.
 // UniqueViolation и прочие ошибки данных не повторяются: это не сбой транспорта.
 // Сетевой обрыв до ответа сервера тоже повторяется: SQLSTATE в этом случае нет.
 func Postgres(err error) bool {
@@ -41,7 +42,7 @@ func Postgres(err error) bool {
 		if pgErr.Code == pgerrcode.UniqueViolation {
 			return false
 		}
-		return pgerrcode.IsConnectionException(pgErr.Code)
+		return pgerrcode.IsConnectionException(pgErr.Code) || pgerrcode.IsTransactionRollback(pgErr.Code)
 	}
 
 	if errors.Is(err, pgconn.ErrConnClosed) || errors.Is(err, driver.ErrBadConn) {

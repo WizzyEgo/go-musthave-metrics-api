@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -140,8 +141,8 @@ func TestUpdateJSONInvalidRequests(t *testing.T) {
 
 func TestValueJSON(t *testing.T) {
 	store := newStubStorage()
-	store.UpdateGauge("LastGC", 1744184459)
-	store.UpdateCounter("PollCount", 8)
+	store.UpdateGauge(context.Background(), "LastGC", 1744184459)
+	store.UpdateCounter(context.Background(), "PollCount", 8)
 	h := NewRouter(nil, store)
 
 	req := httptest.NewRequest(http.MethodPost, "/value", strings.NewReader(
@@ -187,7 +188,7 @@ func TestValueJSON(t *testing.T) {
 
 func TestValueJSONErrors(t *testing.T) {
 	store := newStubStorage()
-	store.UpdateGauge("Alloc", 1)
+	store.UpdateGauge(context.Background(), "Alloc", 1)
 	h := NewRouter(nil, store)
 
 	tests := []struct {

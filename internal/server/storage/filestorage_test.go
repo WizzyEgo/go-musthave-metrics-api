@@ -17,28 +17,28 @@ import (
 func TestFileStorageSyncRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "metrics.json")
 	store := mustFileStorage(t, path, true, false)
-	store.UpdateGauge("Alloc", 1.5)
-	store.UpdateGauge("Alloc", 2.5)
-	store.UpdateCounter("PollCount", 2)
-	store.UpdateCounter("PollCount", 3)
-	store.UpdateGauge("ZeroGauge", 0)
-	store.UpdateCounter("ZeroCounter", 0)
+	store.UpdateGauge(context.Background(), "Alloc", 1.5)
+	store.UpdateGauge(context.Background(), "Alloc", 2.5)
+	store.UpdateCounter(context.Background(), "PollCount", 2)
+	store.UpdateCounter(context.Background(), "PollCount", 3)
+	store.UpdateGauge(context.Background(), "ZeroGauge", 0)
+	store.UpdateCounter(context.Background(), "ZeroCounter", 0)
 
 	restored := mustFileStorage(t, path, false, true)
 
-	gauge, ok := restored.GetGauge("Alloc")
+	gauge, ok := restored.GetGauge(context.Background(), "Alloc")
 	if !ok || gauge != 2.5 {
 		t.Fatalf("Alloc = %v, %v, want 2.5", gauge, ok)
 	}
-	counter, ok := restored.GetCounter("PollCount")
+	counter, ok := restored.GetCounter(context.Background(), "PollCount")
 	if !ok || counter != 5 {
 		t.Fatalf("PollCount = %d, %v, want 5", counter, ok)
 	}
-	gauge, ok = restored.GetGauge("ZeroGauge")
+	gauge, ok = restored.GetGauge(context.Background(), "ZeroGauge")
 	if !ok || gauge != 0 {
 		t.Fatalf("ZeroGauge = %v, %v, want 0", gauge, ok)
 	}
-	counter, ok = restored.GetCounter("ZeroCounter")
+	counter, ok = restored.GetCounter(context.Background(), "ZeroCounter")
 	if !ok || counter != 0 {
 		t.Fatalf("ZeroCounter = %d, %v, want 0", counter, ok)
 	}
@@ -46,7 +46,7 @@ func TestFileStorageSyncRoundTrip(t *testing.T) {
 	if err := restored.Load(); err != nil {
 		t.Fatalf("second Load() error = %v", err)
 	}
-	counter, _ = restored.GetCounter("PollCount")
+	counter, _ = restored.GetCounter(context.Background(), "PollCount")
 	if counter != 5 {
 		t.Fatalf("PollCount after second load = %d, want 5", counter)
 	}
@@ -55,7 +55,7 @@ func TestFileStorageSyncRoundTrip(t *testing.T) {
 func TestFileStorageAsyncSave(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "metrics.json")
 	store := mustFileStorage(t, path, false, false)
-	store.UpdateGauge("LastGC", 12)
+	store.UpdateGauge(context.Background(), "LastGC", 12)
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("file exists before Save, err = %v", err)
 	}
@@ -80,10 +80,10 @@ func TestFileStorageLoadArrayAndNDJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := mustFileStorage(t, arrayPath, false, true)
-	if value, ok := store.GetCounter("NumGC"); !ok || value != 42 {
+	if value, ok := store.GetCounter(context.Background(), "NumGC"); !ok || value != 42 {
 		t.Fatalf("NumGC = %d, %v", value, ok)
 	}
-	if _, ok := store.GetGauge("LastGC"); !ok {
+	if _, ok := store.GetGauge(context.Background(), "LastGC"); !ok {
 		t.Fatal("LastGC was not loaded")
 	}
 
@@ -93,10 +93,10 @@ func TestFileStorageLoadArrayAndNDJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := mustFileStorage(t, ndjsonPath, false, true)
-	if value, ok := lines.GetGauge("Alloc"); !ok || value != 1.25 {
+	if value, ok := lines.GetGauge(context.Background(), "Alloc"); !ok || value != 1.25 {
 		t.Fatalf("Alloc = %v, %v", value, ok)
 	}
-	if value, ok := lines.GetCounter("PollCount"); !ok || value != 7 {
+	if value, ok := lines.GetCounter(context.Background(), "PollCount"); !ok || value != 7 {
 		t.Fatalf("PollCount = %d, %v", value, ok)
 	}
 }
@@ -123,14 +123,14 @@ func TestFileStorageLoadInvalid(t *testing.T) {
 
 func TestFileStorageEmptyPath(t *testing.T) {
 	store := mustFileStorage(t, "", true, true)
-	store.UpdateGauge("Alloc", 1)
+	store.UpdateGauge(context.Background(), "Alloc", 1)
 	if err := store.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
 	if err := store.Save(); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
-	if _, ok := store.GetGauge("Alloc"); !ok {
+	if _, ok := store.GetGauge(context.Background(), "Alloc"); !ok {
 		t.Fatal("Alloc was not stored in memory")
 	}
 }
@@ -138,7 +138,7 @@ func TestFileStorageEmptyPath(t *testing.T) {
 func TestFileStorageFlushEvery(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "metrics.json")
 	store := mustFileStorage(t, path, false, false)
-	store.UpdateGauge("Alloc", 3)
+	store.UpdateGauge(context.Background(), "Alloc", 3)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -168,7 +168,7 @@ func TestFileStorageUpdateBatch(t *testing.T) {
 
 	value := 3.5
 	delta := int64(4)
-	updated, err := store.UpdateBatch([]model.Metrics{
+	updated, err := store.UpdateBatch(context.Background(), []model.Metrics{
 		{ID: "Alloc", MType: model.Gauge, Value: &value},
 		{ID: "PollCount", MType: model.Counter, Delta: &delta},
 	})
@@ -180,20 +180,20 @@ func TestFileStorageUpdateBatch(t *testing.T) {
 	}
 
 	restored := mustFileStorage(t, path, false, true)
-	gauge, ok := restored.GetGauge("Alloc")
+	gauge, ok := restored.GetGauge(context.Background(), "Alloc")
 	if !ok || gauge != 3.5 {
 		t.Fatalf("Alloc = (%v, %v), want (3.5, true)", gauge, ok)
 	}
-	counter, ok := restored.GetCounter("PollCount")
+	counter, ok := restored.GetCounter(context.Background(), "PollCount")
 	if !ok || counter != 4 {
 		t.Fatalf("PollCount = (%d, %v), want (4, true)", counter, ok)
 	}
 
-	_, err = store.UpdateBatch([]model.Metrics{{ID: "Sys", MType: model.Gauge}})
+	_, err = store.UpdateBatch(context.Background(), []model.Metrics{{ID: "Sys", MType: model.Gauge}})
 	if !errors.Is(err, ErrInvalidMetric) {
 		t.Fatalf("invalid UpdateBatch() error = %v", err)
 	}
-	if _, ok := store.GetGauge("Sys"); ok {
+	if _, ok := store.GetGauge(context.Background(), "Sys"); ok {
 		t.Fatal("invalid batch stored Sys")
 	}
 }
