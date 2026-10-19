@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -42,37 +43,49 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	err := retry.Do(req.Context(), func() error {
 		attempt++
 		attemptCtx, cancel := context.WithTimeout(req.Context(), attemptTimeout)
+		defer cancel()
+
 		attemptReq, cloneErr := cloneRequest(req, attemptCtx, attempt)
 		if cloneErr != nil {
-			cancel()
 			return cloneErr
 		}
 
-		var rtErr error
-		resp, rtErr = base.RoundTrip(attemptReq)
+		attemptResp, rtErr := roundTripBuffered(base, attemptReq)
 		if rtErr != nil {
-			cancel()
-			if resp != nil && resp.Body != nil {
-				_ = resp.Body.Close()
-			}
-			resp = nil
 			if !retry.Connection(rtErr) || !canRewind(req) {
 				return rtErr
 			}
 			t.log.Warn("retriable connection error", zap.Int("attempt", attempt), zap.Error(rtErr))
 			return retry.Retriable(rtErr)
 		}
-
-		if resp != nil && resp.Body != nil {
-			resp.Body = &cancelBody{ReadCloser: resp.Body, cancel: cancel}
-			return nil
-		}
-		cancel()
+		resp = attemptResp
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+	return resp, nil
+}
+
+// bodyclose:handled
+// roundTripBuffered закрывает исходное тело ответа и отдаёт его копию.
+// Повтор запроса не может читать уже закрытое тело, а проверка bodyclose
+// не видит Close внутри замыкания ретрая.
+func roundTripBuffered(base http.RoundTripper, req *http.Request) (*http.Response, error) {
+	resp, err := base.RoundTrip(req)
+	if err != nil {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	payload, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(payload))
 	return resp, nil
 }
 
@@ -98,15 +111,4 @@ func cloneRequest(req *http.Request, ctx context.Context, attempt int) (*http.Re
 		return clone, nil
 	}
 	return nil, errors.New("retry transport: request body is not rewindable")
-}
-
-type cancelBody struct {
-	io.ReadCloser
-	cancel context.CancelFunc
-}
-
-func (b *cancelBody) Close() error {
-	err := b.ReadCloser.Close()
-	b.cancel()
-	return err
 }
