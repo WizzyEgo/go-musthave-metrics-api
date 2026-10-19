@@ -17,6 +17,7 @@ import (
 
 	"go-musthave-metrics-tpl/internal/compress"
 	"go-musthave-metrics-tpl/internal/model"
+	"go-musthave-metrics-tpl/internal/retry"
 )
 
 func (s *Service) collect() map[string]float64 {
@@ -121,7 +122,20 @@ func (s *Service) sendBatch(ctx context.Context, metrics []model.Metrics) error 
 		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.serverURL+"/updates/", bytes.NewReader(compressed))
+	attempt := 0
+	return retry.Do(ctx, func() error {
+		attempt++
+		err := s.post(ctx, compressed)
+		if !retry.Connection(err) {
+			return err
+		}
+		s.log.Warn("retriable connection error", zap.Int("attempt", attempt), zap.Error(err))
+		return retry.Retriable(err)
+	})
+}
+
+func (s *Service) post(ctx context.Context, body []byte) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.serverURL+"/updates/", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
