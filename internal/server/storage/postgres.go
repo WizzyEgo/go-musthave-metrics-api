@@ -60,6 +60,85 @@ func (s *PostgresStorage) UpdateCounter(name string, value int64) {
 	}
 }
 
+const (
+	upsertGaugeSQL = `
+		INSERT INTO metrics (id, mtype, value, delta)
+		VALUES ($1, $2, $3, NULL)
+		ON CONFLICT (id, mtype) DO UPDATE
+		SET value = EXCLUDED.value, delta = NULL
+		RETURNING value`
+
+	upsertCounterSQL = `
+		INSERT INTO metrics (id, mtype, delta, value)
+		VALUES ($1, $2, $3, NULL)
+		ON CONFLICT (id, mtype) DO UPDATE
+		SET delta = COALESCE(metrics.delta, 0) + EXCLUDED.delta, value = NULL
+		RETURNING delta`
+)
+
+// UpdateBatch записывает набор метрик одной транзакцией.
+// Инкремент counter выполняется в SQL, поэтому параллельные обновления не теряют дельту.
+func (s *PostgresStorage) UpdateBatch(metrics []model.Metrics) ([]model.Metrics, error) {
+	if err := validateMetrics(metrics); err != nil {
+		return nil, err
+	}
+	if len(metrics) == 0 {
+		return []model.Metrics{}, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
+	defer cancel()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		s.log.Error("failed to begin metrics batch", zap.Error(err))
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	gaugeStmt, err := tx.PrepareContext(ctx, upsertGaugeSQL)
+	if err != nil {
+		s.log.Error("failed to prepare gauge batch", zap.Error(err))
+		return nil, err
+	}
+	defer func() { _ = gaugeStmt.Close() }()
+
+	counterStmt, err := tx.PrepareContext(ctx, upsertCounterSQL)
+	if err != nil {
+		s.log.Error("failed to prepare counter batch", zap.Error(err))
+		return nil, err
+	}
+	defer func() { _ = counterStmt.Close() }()
+
+	updated := make([]model.Metrics, len(metrics))
+	for i, metric := range metrics {
+		switch metric.MType {
+		case model.Gauge:
+			var value float64
+			err = gaugeStmt.QueryRowContext(ctx, metric.ID, model.Gauge, *metric.Value).Scan(&value)
+			if err != nil {
+				s.log.Error("failed to update gauge batch", zap.String("id", metric.ID), zap.Error(err))
+				return nil, err
+			}
+			updated[i] = metricFromStored(metric, value, 0)
+		case model.Counter:
+			var delta int64
+			err = counterStmt.QueryRowContext(ctx, metric.ID, model.Counter, *metric.Delta).Scan(&delta)
+			if err != nil {
+				s.log.Error("failed to update counter batch", zap.String("id", metric.ID), zap.Error(err))
+				return nil, err
+			}
+			updated[i] = metricFromStored(metric, 0, delta)
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		s.log.Error("failed to commit metrics batch", zap.Error(err))
+		return nil, err
+	}
+	return updated, nil
+}
+
 func (s *PostgresStorage) GetGauge(name string) (float64, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
 	defer cancel()

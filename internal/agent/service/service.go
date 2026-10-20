@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/http"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -17,6 +18,7 @@ type Service struct {
 	serverURL      string
 	pollInterval   time.Duration
 	reportInterval time.Duration
+	reportMu       sync.Mutex
 }
 
 func New(cfg config.AgentConfig, log *zap.Logger) *Service {

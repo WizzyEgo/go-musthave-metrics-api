@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 
+	"go-musthave-metrics-tpl/internal/model"
 	"go-musthave-metrics-tpl/internal/server/storage"
 )
 
@@ -41,6 +42,41 @@ func (s *stubStorage) GetGauge(name string) (float64, bool) {
 func (s *stubStorage) GetCounter(name string) (int64, bool) {
 	value, ok := s.counters[name]
 	return value, ok
+}
+
+func (s *stubStorage) UpdateBatch(metrics []model.Metrics) ([]model.Metrics, error) {
+	for _, metric := range metrics {
+		if metric.ID == "" {
+			return nil, storage.ErrEmptyMetricID
+		}
+		switch metric.MType {
+		case model.Gauge:
+			if metric.Value == nil {
+				return nil, storage.ErrInvalidMetric
+			}
+		case model.Counter:
+			if metric.Delta == nil {
+				return nil, storage.ErrInvalidMetric
+			}
+		default:
+			return nil, storage.ErrInvalidMetric
+		}
+	}
+
+	updated := make([]model.Metrics, len(metrics))
+	for i, metric := range metrics {
+		switch metric.MType {
+		case model.Gauge:
+			s.UpdateGauge(metric.ID, *metric.Value)
+			value := s.gauges[metric.ID]
+			updated[i] = model.Metrics{ID: metric.ID, MType: model.Gauge, Value: &value, Hash: metric.Hash}
+		case model.Counter:
+			s.UpdateCounter(metric.ID, *metric.Delta)
+			delta := s.counters[metric.ID]
+			updated[i] = model.Metrics{ID: metric.ID, MType: model.Counter, Delta: &delta, Hash: metric.Hash}
+		}
+	}
+	return updated, nil
 }
 
 func (s *stubStorage) GetAll() (map[string]float64, map[string]int64) {

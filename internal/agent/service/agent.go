@@ -67,52 +67,51 @@ func (s *Service) Report() {
 }
 
 func (s *Service) report(ctx context.Context) {
-	gauges, counters := s.metrics.Snapshot()
+	s.reportMu.Lock()
+	defer s.reportMu.Unlock()
 
+	gauges, counters := s.metrics.Snapshot()
+	batch := make([]model.Metrics, 0, len(gauges)+len(counters))
 	for name, value := range gauges {
-		if ctx.Err() != nil {
-			return
-		}
 		v := value
-		if err := s.sendMetric(ctx, model.Metrics{
+		batch = append(batch, model.Metrics{
 			ID:    name,
 			MType: model.Gauge,
 			Value: &v,
-		}); err != nil {
-			s.logSendError(model.Gauge, name, err)
-		}
+		})
 	}
-
 	for name, value := range counters {
-		if ctx.Err() != nil {
-			return
-		}
 		delta := value
-		if err := s.sendMetric(ctx, model.Metrics{
+		batch = append(batch, model.Metrics{
 			ID:    name,
 			MType: model.Counter,
 			Delta: &delta,
-		}); err != nil {
-			s.logSendError(model.Counter, name, err)
-			continue
+		})
+	}
+	if len(batch) == 0 {
+		return
+	}
+
+	if err := s.sendBatch(ctx, batch); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			s.log.Error("failed to send metrics", zap.Int("count", len(batch)), zap.Error(err))
 		}
+		return
+	}
+
+	// Вычитаем отправленную дельту, а не обнуляем счётчик:
+	// за время запроса Collect мог увеличить его снова.
+	for name, value := range counters {
 		s.metrics.SubCounter(name, value)
 	}
 }
 
-func (s *Service) logSendError(metricType, name string, err error) {
-	if errors.Is(err, context.Canceled) {
-		return
+func (s *Service) sendBatch(ctx context.Context, metrics []model.Metrics) error {
+	if len(metrics) == 0 {
+		return nil
 	}
-	s.log.Error("failed to send metric",
-		zap.String("type", metricType),
-		zap.String("id", name),
-		zap.Error(err),
-	)
-}
 
-func (s *Service) sendMetric(ctx context.Context, metric model.Metrics) error {
-	payload, err := easyjson.Marshal(metric)
+	payload, err := easyjson.Marshal(model.MetricsList(metrics))
 	if err != nil {
 		return err
 	}
@@ -122,7 +121,7 @@ func (s *Service) sendMetric(ctx context.Context, metric model.Metrics) error {
 		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.serverURL+"/update", bytes.NewReader(compressed))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.serverURL+"/updates/", bytes.NewReader(compressed))
 	if err != nil {
 		return err
 	}
