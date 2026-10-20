@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -43,22 +44,35 @@ func run() int {
 
 	log.Info("server starting", zap.String("address", cfg.Address))
 
-	store, err := storage.NewFileStorage(log.Named("storage"), cfg.FileStoragePath, cfg.StoreInterval == 0, cfg.Restore)
-	if err != nil {
-		log.Error("failed to restore metrics", zap.Error(err))
-	}
-
 	db, err := openDatabase(cfg.DatabaseDSN)
 	if err != nil {
 		log.Error("failed to open database", zap.Error(err))
+		if strings.TrimSpace(cfg.DatabaseDSN) != "" {
+			return 1
+		}
 	}
 	defer func() { _ = db.Close() }()
+
+	store, fileStore, err := storage.New(
+		log.Named("storage"),
+		cfg.DatabaseDSN,
+		db.DB(),
+		cfg.FileStoragePath,
+		cfg.StoreInterval == 0,
+		cfg.Restore,
+	)
+	if err != nil {
+		log.Error("failed to init storage", zap.Error(err))
+		if strings.TrimSpace(cfg.DatabaseDSN) != "" {
+			return 1
+		}
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if cfg.FileStoragePath != "" && cfg.StoreInterval > 0 {
-		go store.FlushEvery(ctx, cfg.StoreInterval)
+	if fileStore != nil && cfg.FileStoragePath != "" && cfg.StoreInterval > 0 {
+		go fileStore.FlushEvery(ctx, cfg.StoreInterval)
 	}
 
 	srv := &http.Server{
@@ -80,14 +94,16 @@ func run() int {
 		return 1
 	}
 
-	if err := store.Save(); err != nil {
-		log.Error("failed to save metrics", zap.Error(err))
+	if fileStore != nil {
+		if err := fileStore.Save(); err != nil {
+			log.Error("failed to save metrics", zap.Error(err))
+		}
 	}
 	return 0
 }
 
 func openDatabase(dsn string) (*database.Client, error) {
-	if dsn == "" {
+	if strings.TrimSpace(dsn) == "" {
 		return nil, nil
 	}
 	return database.Open(dsn)

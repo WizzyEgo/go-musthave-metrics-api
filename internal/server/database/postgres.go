@@ -25,6 +25,13 @@ func Open(dsn string) (*Client, error) {
 	return &Client{db: db}, nil
 }
 
+func (c *Client) DB() *sql.DB {
+	if c == nil {
+		return nil
+	}
+	return c.db
+}
+
 func (c *Client) Ping(ctx context.Context) error {
 	if c == nil || c.db == nil {
 		return ErrNotConfigured

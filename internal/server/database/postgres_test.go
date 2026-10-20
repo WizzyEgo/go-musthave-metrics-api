@@ -18,6 +18,9 @@ func TestOpenEmptyDSN(t *testing.T) {
 
 func TestNilClientPingAndClose(t *testing.T) {
 	var client *Client
+	if client.DB() != nil {
+		t.Fatal("DB() != nil")
+	}
 	if err := client.Ping(context.Background()); !errors.Is(err, ErrNotConfigured) {
 		t.Fatalf("Ping() error = %v, want %v", err, ErrNotConfigured)
 	}
