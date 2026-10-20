@@ -1,16 +1,24 @@
 package handler
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
 
 	"go-musthave-metrics-tpl/internal/model"
 	"go-musthave-metrics-tpl/internal/server/storage"
 )
 
-func Update(store storage.Storage) http.HandlerFunc {
+var errBadValue = errors.New("bad metric value")
+
+func Update(log *zap.Logger, store storage.Storage) http.HandlerFunc {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		metricType := chi.URLParam(r, "type")
 		metricName := chi.URLParam(r, "name")
@@ -26,8 +34,12 @@ func Update(store storage.Storage) http.HandlerFunc {
 			return
 		}
 
-		if err := updateMetric(store, metricType, metricName, metricValue); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
+		if err := updateMetric(r.Context(), store, metricType, metricName, metricValue); err != nil {
+			if errors.Is(err, errBadValue) {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			writeInternalError(log, w, "failed to update metric", err)
 			return
 		}
 
@@ -36,20 +48,21 @@ func Update(store storage.Storage) http.HandlerFunc {
 	}
 }
 
-func updateMetric(store storage.Storage, metricType, metricName, metricValue string) error {
+func updateMetric(ctx context.Context, store storage.Storage, metricType, metricName, metricValue string) error {
 	switch metricType {
 	case model.Gauge:
 		val, err := strconv.ParseFloat(metricValue, 64)
 		if err != nil {
-			return err
+			return errBadValue
 		}
-		store.UpdateGauge(metricName, val)
+		return store.UpdateGauge(ctx, metricName, val)
 	case model.Counter:
 		val, err := strconv.ParseInt(metricValue, 10, 64)
 		if err != nil {
-			return err
+			return errBadValue
 		}
-		store.UpdateCounter(metricName, val)
+		return store.UpdateCounter(ctx, metricName, val)
+	default:
+		return errBadValue
 	}
-	return nil
 }

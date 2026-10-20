@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -10,10 +11,10 @@ import (
 
 func TestMemStorageUpdateGauge(t *testing.T) {
 	store := NewMemStorage()
-	store.UpdateGauge("Alloc", 10.5)
-	store.UpdateGauge("Alloc", 20.5)
+	store.UpdateGauge(context.Background(), "Alloc", 10.5)
+	store.UpdateGauge(context.Background(), "Alloc", 20.5)
 
-	got, ok := store.GetGauge("Alloc")
+	got, ok := store.GetGauge(context.Background(), "Alloc")
 	if !ok {
 		t.Fatal("Alloc was not stored")
 	}
@@ -24,10 +25,10 @@ func TestMemStorageUpdateGauge(t *testing.T) {
 
 func TestMemStorageUpdateCounter(t *testing.T) {
 	store := NewMemStorage()
-	store.UpdateCounter("PollCount", 1)
-	store.UpdateCounter("PollCount", 4)
+	store.UpdateCounter(context.Background(), "PollCount", 1)
+	store.UpdateCounter(context.Background(), "PollCount", 4)
 
-	got, ok := store.GetCounter("PollCount")
+	got, ok := store.GetCounter(context.Background(), "PollCount")
 	if !ok {
 		t.Fatal("PollCount was not stored")
 	}
@@ -38,10 +39,10 @@ func TestMemStorageUpdateCounter(t *testing.T) {
 
 func TestMemStorageSetCounter(t *testing.T) {
 	store := NewMemStorage()
-	store.UpdateCounter("PollCount", 5)
+	store.UpdateCounter(context.Background(), "PollCount", 5)
 	store.SetCounter("PollCount", 2)
 
-	got, ok := store.GetCounter("PollCount")
+	got, ok := store.GetCounter(context.Background(), "PollCount")
 	if !ok {
 		t.Fatal("PollCount was not stored")
 	}
@@ -53,20 +54,20 @@ func TestMemStorageSetCounter(t *testing.T) {
 func TestMemStorageGetUnknown(t *testing.T) {
 	store := NewMemStorage()
 
-	if _, ok := store.GetGauge("Alloc"); ok {
+	if _, ok := store.GetGauge(context.Background(), "Alloc"); ok {
 		t.Fatal("expected unknown gauge")
 	}
-	if _, ok := store.GetCounter("PollCount"); ok {
+	if _, ok := store.GetCounter(context.Background(), "PollCount"); ok {
 		t.Fatal("expected unknown counter")
 	}
 }
 
 func TestMemStorageAll(t *testing.T) {
 	store := NewMemStorage()
-	store.UpdateGauge("Alloc", 1.5)
-	store.UpdateCounter("PollCount", 2)
+	store.UpdateGauge(context.Background(), "Alloc", 1.5)
+	store.UpdateCounter(context.Background(), "PollCount", 2)
 
-	gauges, counters := store.GetAll()
+	gauges, counters := store.GetAll(context.Background())
 	if gauges["Alloc"] != 1.5 {
 		t.Fatalf("GetAll gauges Alloc = %v, want 1.5", gauges["Alloc"])
 	}
@@ -76,22 +77,22 @@ func TestMemStorageAll(t *testing.T) {
 
 	gauges["Alloc"] = 0
 	counters["PollCount"] = 0
-	if got, _ := store.GetGauge("Alloc"); got != 1.5 {
+	if got, _ := store.GetGauge(context.Background(), "Alloc"); got != 1.5 {
 		t.Fatal("GetAll must return a copy of gauges")
 	}
-	if got, _ := store.GetCounter("PollCount"); got != 2 {
+	if got, _ := store.GetCounter(context.Background(), "PollCount"); got != 2 {
 		t.Fatal("GetAll must return a copy of counters")
 	}
 }
 
 func TestMemStorageUpdateBatch(t *testing.T) {
 	store := NewMemStorage()
-	store.UpdateCounter("PollCount", 1)
+	store.UpdateCounter(context.Background(), "PollCount", 1)
 
 	value := 1.5
 	first := int64(2)
 	second := int64(3)
-	updated, err := store.UpdateBatch([]model.Metrics{
+	updated, err := store.UpdateBatch(context.Background(), []model.Metrics{
 		{ID: "Alloc", MType: model.Gauge, Value: &value},
 		{ID: "PollCount", MType: model.Counter, Delta: &first},
 		{ID: "PollCount", MType: model.Counter, Delta: &second},
@@ -106,7 +107,7 @@ func TestMemStorageUpdateBatch(t *testing.T) {
 		t.Fatalf("updated counters = %+v %+v", updated[1], updated[2])
 	}
 
-	got, ok := store.GetCounter("PollCount")
+	got, ok := store.GetCounter(context.Background(), "PollCount")
 	if !ok || got != 6 {
 		t.Fatalf("PollCount = (%d, %v), want (6, true)", got, ok)
 	}
@@ -114,19 +115,19 @@ func TestMemStorageUpdateBatch(t *testing.T) {
 
 func TestMemStorageUpdateBatchRejectsInvalidWithoutChanges(t *testing.T) {
 	store := NewMemStorage()
-	store.UpdateCounter("PollCount", 4)
+	store.UpdateCounter(context.Background(), "PollCount", 4)
 	value := 1.0
-	_, err := store.UpdateBatch([]model.Metrics{
+	_, err := store.UpdateBatch(context.Background(), []model.Metrics{
 		{ID: "Alloc", MType: model.Gauge, Value: &value},
 		{ID: "Bad", MType: "unknown"},
 	})
 	if !errors.Is(err, ErrInvalidMetric) {
 		t.Fatalf("UpdateBatch() error = %v, want ErrInvalidMetric", err)
 	}
-	if _, ok := store.GetGauge("Alloc"); ok {
+	if _, ok := store.GetGauge(context.Background(), "Alloc"); ok {
 		t.Fatal("invalid batch stored Alloc")
 	}
-	if got, _ := store.GetCounter("PollCount"); got != 4 {
+	if got, _ := store.GetCounter(context.Background(), "PollCount"); got != 4 {
 		t.Fatalf("PollCount = %d, want 4", got)
 	}
 }
@@ -141,18 +142,18 @@ func TestMemStorageUpdateBatchConcurrent(t *testing.T) {
 			defer wg.Done()
 			delta := int64(1)
 			value := 1.0
-			if _, err := store.UpdateBatch([]model.Metrics{
+			if _, err := store.UpdateBatch(context.Background(), []model.Metrics{
 				{ID: "PollCount", MType: model.Counter, Delta: &delta},
 				{ID: "Alloc", MType: model.Gauge, Value: &value},
 			}); err != nil {
 				t.Errorf("UpdateBatch() error = %v", err)
 			}
-			store.GetAll()
+			store.GetAll(context.Background())
 		}()
 	}
 	wg.Wait()
 
-	got, ok := store.GetCounter("PollCount")
+	got, ok := store.GetCounter(context.Background(), "PollCount")
 	if !ok || got != workers {
 		t.Fatalf("PollCount = (%d, %v), want (%d, true)", got, ok, workers)
 	}

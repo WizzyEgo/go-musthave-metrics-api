@@ -120,8 +120,11 @@ func (s *Service) sendBatch(ctx context.Context, metrics []model.Metrics) error 
 	if err != nil {
 		return err
 	}
+	return s.post(ctx, compressed)
+}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.serverURL+"/updates/", bytes.NewReader(compressed))
+func (s *Service) post(ctx context.Context, body []byte) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.serverURL+"/updates/", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

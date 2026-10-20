@@ -77,7 +77,7 @@ func run() int {
 
 	srv := &http.Server{
 		Addr:    cfg.Address,
-		Handler: handler.MetricHandler(log.Named("http"), store, db),
+		Handler: handler.MetricHandler(log.Named("http"), store),
 	}
 
 	go func() {

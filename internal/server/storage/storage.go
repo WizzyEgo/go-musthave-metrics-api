@@ -1,12 +1,17 @@
 package storage
 
-import "go-musthave-metrics-tpl/internal/model"
+import (
+	"context"
+
+	"go-musthave-metrics-tpl/internal/model"
+)
 
 type Storage interface {
-	UpdateGauge(name string, value float64)
-	UpdateCounter(name string, value int64)
-	UpdateBatch(metrics []model.Metrics) ([]model.Metrics, error)
-	GetGauge(name string) (float64, bool)
-	GetCounter(name string) (int64, bool)
-	GetAll() (gauges map[string]float64, counters map[string]int64)
+	UpdateGauge(ctx context.Context, name string, value float64) error
+	UpdateCounter(ctx context.Context, name string, value int64) error
+	UpdateBatch(ctx context.Context, metrics []model.Metrics) ([]model.Metrics, error)
+	GetGauge(ctx context.Context, name string) (float64, bool)
+	GetCounter(ctx context.Context, name string) (int64, bool)
+	GetAll(ctx context.Context) (gauges map[string]float64, counters map[string]int64)
+	Ping(ctx context.Context) error
 }

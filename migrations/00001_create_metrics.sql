@@ -1,10 +1,11 @@
 -- +goose Up
 CREATE TABLE IF NOT EXISTS metrics (
-    id TEXT NOT NULL,
-    mtype TEXT NOT NULL,
+    metric_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id VARCHAR(255) NOT NULL,
+    mtype VARCHAR(16) NOT NULL,
     delta BIGINT,
     value DOUBLE PRECISION,
-    PRIMARY KEY (id, mtype)
+    UNIQUE (id, mtype)
 );
 
 -- +goose Down

@@ -6,6 +6,8 @@ import (
 	"errors"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+
+	"go-musthave-metrics-tpl/internal/retry"
 )
 
 var ErrNotConfigured = errors.New("database is not configured")
@@ -36,7 +38,13 @@ func (c *Client) Ping(ctx context.Context) error {
 	if c == nil || c.db == nil {
 		return ErrNotConfigured
 	}
-	return c.db.PingContext(ctx)
+	return retry.Do(ctx, func() error {
+		err := c.db.PingContext(ctx)
+		if retry.Postgres(err) {
+			return retry.Retriable(err)
+		}
+		return err
+	})
 }
 
 func (c *Client) Close() error {

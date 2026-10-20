@@ -2,11 +2,15 @@ package service
 
 import (
 	"compress/gzip"
+	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -188,13 +192,13 @@ func TestReportStoresMetricsOnServer(t *testing.T) {
 	s.Report()
 
 	for name, value := range gauges {
-		got, ok := store.GetGauge(name)
+		got, ok := store.GetGauge(context.Background(), name)
 		if !ok || got != value {
 			t.Errorf("server gauge %s = (%v, %v), want %v", name, got, ok, value)
 		}
 	}
 	for name, value := range counters {
-		got, ok := store.GetCounter(name)
+		got, ok := store.GetCounter(context.Background(), name)
 		if !ok || got != value {
 			t.Errorf("server counter %s = (%v, %v), want %v", name, got, ok, value)
 		}
@@ -219,7 +223,9 @@ func TestReportSkipsEmptyBatch(t *testing.T) {
 }
 
 func TestReportKeepsCountersWhenSendFails(t *testing.T) {
+	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -233,6 +239,57 @@ func TestReportKeepsCountersWhenSendFails(t *testing.T) {
 	if !ok || pollCount != 1 {
 		t.Fatalf("PollCount = (%d, %v), want (1, true)", pollCount, ok)
 	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("requests = %d, want 1", got)
+	}
+}
+
+func TestReportRetriesConnectionError(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	next := server.Client().Transport
+	var calls atomic.Int32
+	s := New(config.DefaultAgent(), zap.NewNop())
+	s.serverURL = server.URL
+	transport, ok := s.client.Transport.(*retryTransport)
+	if !ok {
+		t.Fatal("client transport is not retryTransport")
+	}
+	transport.base = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if calls.Add(1) == 1 {
+			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+		}
+		return next.RoundTrip(r)
+	})
+	s.Collect()
+
+	started := time.Now()
+	s.Report()
+
+	if calls.Load() != 2 {
+		t.Fatalf("attempts = %d, want 2", calls.Load())
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("accepted requests = %d, want 1", requests.Load())
+	}
+	if elapsed := time.Since(started); elapsed < 900*time.Millisecond {
+		t.Fatalf("retry interval = %s, want at least 1s", elapsed)
+	}
+	pollCount, ok := s.metrics.Counter("PollCount")
+	if !ok || pollCount != 0 {
+		t.Fatalf("PollCount = (%d, %v), want (0, true)", pollCount, ok)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
 }
 
 func TestReportKeepsCountersCollectedDuringSend(t *testing.T) {

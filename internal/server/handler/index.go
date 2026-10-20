@@ -32,7 +32,7 @@ var indexTmpl = template.Must(template.New("index").Parse(`<!DOCTYPE html>
 
 func Index(store storage.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		gauges, counters := store.GetAll()
+		gauges, counters := store.GetAll(r.Context())
 		items := make([]metricItem, 0, len(gauges)+len(counters))
 
 		for name, value := range gauges {

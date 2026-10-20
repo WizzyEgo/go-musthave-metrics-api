@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -91,7 +92,7 @@ func TestUpdatesWithoutSlash(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	got, ok := store.GetGauge("Alloc")
+	got, ok := store.GetGauge(context.Background(), "Alloc")
 	if !ok || got != 4 {
 		t.Fatalf("Alloc = (%v, %v), want (4, true)", got, ok)
 	}
@@ -99,7 +100,7 @@ func TestUpdatesWithoutSlash(t *testing.T) {
 
 func TestUpdatesEmptyBatch(t *testing.T) {
 	store := newStubStorage()
-	store.UpdateCounter("PollCount", 1)
+	store.UpdateCounter(context.Background(), "PollCount", 1)
 	h := NewRouter(nil, store)
 
 	req := httptest.NewRequest(http.MethodPost, "/updates/", strings.NewReader(`[]`))
@@ -136,7 +137,7 @@ func TestUpdatesInvalidRequests(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := newStubStorage()
-			store.UpdateCounter("PollCount", 7)
+			store.UpdateCounter(context.Background(), "PollCount", 7)
 			h := NewRouter(nil, store)
 
 			req := httptest.NewRequest(http.MethodPost, "/updates/", strings.NewReader(tt.body))

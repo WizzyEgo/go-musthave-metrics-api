@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"sync"
 
 	"go-musthave-metrics-tpl/internal/model"
@@ -21,16 +22,24 @@ func NewMemStorage() *MemStorage {
 	}
 }
 
-func (ms *MemStorage) UpdateGauge(name string, value float64) {
+func (ms *MemStorage) UpdateGauge(ctx context.Context, name string, value float64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 	ms.gauges[name] = value
+	return nil
 }
 
-func (ms *MemStorage) UpdateCounter(name string, value int64) {
+func (ms *MemStorage) UpdateCounter(ctx context.Context, name string, value int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 	ms.counters[name] += value
+	return nil
 }
 
 func (ms *MemStorage) SetCounter(name string, value int64) {
@@ -39,21 +48,21 @@ func (ms *MemStorage) SetCounter(name string, value int64) {
 	ms.counters[name] = value
 }
 
-func (ms *MemStorage) GetGauge(name string) (float64, bool) {
+func (ms *MemStorage) GetGauge(_ context.Context, name string) (float64, bool) {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
 	value, ok := ms.gauges[name]
 	return value, ok
 }
 
-func (ms *MemStorage) GetCounter(name string) (int64, bool) {
+func (ms *MemStorage) GetCounter(_ context.Context, name string) (int64, bool) {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
 	value, ok := ms.counters[name]
 	return value, ok
 }
 
-func (ms *MemStorage) GetAll() (map[string]float64, map[string]int64) {
+func (ms *MemStorage) GetAll(_ context.Context) (map[string]float64, map[string]int64) {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
 
@@ -70,8 +79,15 @@ func (ms *MemStorage) GetAll() (map[string]float64, map[string]int64) {
 	return gauges, counters
 }
 
+func (ms *MemStorage) Ping(context.Context) error {
+	return nil
+}
+
 // UpdateBatch применяет список метрик под одним замком, чтобы чтение не увидело часть батча.
-func (ms *MemStorage) UpdateBatch(metrics []model.Metrics) ([]model.Metrics, error) {
+func (ms *MemStorage) UpdateBatch(ctx context.Context, metrics []model.Metrics) ([]model.Metrics, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 
