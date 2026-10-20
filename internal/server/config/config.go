@@ -31,6 +31,7 @@ type ServerConfig struct {
 	StoreInterval   time.Duration `env:"STORE_INTERVAL"`
 	FileStoragePath string        `env:"FILE_STORAGE_PATH"`
 	Restore         bool          `env:"RESTORE"`
+	DatabaseDSN     string        `env:"DATABASE_DSN"`
 }
 
 func ParseServer() (ServerConfig, error) {
@@ -58,6 +59,7 @@ func parseServer(args []string, output io.Writer, environ map[string]string) (Se
 	fs.IntVar(&storeSec, "i", int(DefaultStoreInterval/time.Second), "интервал сохранения метрик на диск в секундах (0 — синхронная запись)")
 	fs.StringVar(&cfg.FileStoragePath, "f", DefaultFileStoragePath, "файл для сохранения метрик (пустое значение отключает запись)")
 	fs.BoolVar(&cfg.Restore, "r", DefaultRestore, "загружать сохранённые метрики при старте сервера")
+	fs.StringVar(&cfg.DatabaseDSN, "d", "", "адрес подключения к PostgreSQL")
 	if err := fs.Parse(args); err != nil {
 		return ServerConfig{}, err
 	}
