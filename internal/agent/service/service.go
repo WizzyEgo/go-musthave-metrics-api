@@ -16,6 +16,7 @@ type Service struct {
 	client         *http.Client
 	log            *zap.Logger
 	serverURL      string
+	key            string
 	pollInterval   time.Duration
 	reportInterval time.Duration
 	reportMu       sync.Mutex
@@ -32,6 +33,7 @@ func New(cfg config.AgentConfig, log *zap.Logger) *Service {
 		},
 		log:            log,
 		serverURL:      "http://" + cfg.Address,
+		key:            cfg.Key,
 		pollInterval:   cfg.PollInterval,
 		reportInterval: cfg.ReportInterval,
 	}

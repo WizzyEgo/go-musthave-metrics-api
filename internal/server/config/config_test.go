@@ -30,6 +30,9 @@ func TestParseServerFlagsDefaults(t *testing.T) {
 	if cfg.DatabaseDSN != "" {
 		t.Fatalf("DatabaseDSN = %q, want empty", cfg.DatabaseDSN)
 	}
+	if cfg.Key != "" {
+		t.Fatalf("Key = %q, want empty", cfg.Key)
+	}
 }
 
 func TestParseServerFlagsAddress(t *testing.T) {
@@ -239,6 +242,40 @@ func TestParseServerDatabaseDSNEnvOnly(t *testing.T) {
 	}
 	if cfg.DatabaseDSN != "postgres://only-env" {
 		t.Fatalf("DatabaseDSN = %q, want postgres://only-env", cfg.DatabaseDSN)
+	}
+}
+
+func TestParseServerKeyFlag(t *testing.T) {
+	cfg, err := parseServerFlags([]string{"-k=secret"}, io.Discard)
+	if err != nil {
+		t.Fatalf("parseServerFlags() error = %v", err)
+	}
+	if cfg.Key != "secret" {
+		t.Fatalf("Key = %q, want secret", cfg.Key)
+	}
+}
+
+func TestParseServerKeyEnvOverridesInvalidFlag(t *testing.T) {
+	cfg, err := parseServer([]string{"-k=invalidkey"}, io.Discard, map[string]string{
+		"KEY": "real-key",
+	})
+	if err != nil {
+		t.Fatalf("parseServer() error = %v", err)
+	}
+	if cfg.Key != "real-key" {
+		t.Fatalf("Key = %q, want real-key", cfg.Key)
+	}
+}
+
+func TestParseServerKeyEnvOnly(t *testing.T) {
+	cfg, err := parseServer(nil, io.Discard, map[string]string{
+		"KEY": "only-env",
+	})
+	if err != nil {
+		t.Fatalf("parseServer() error = %v", err)
+	}
+	if cfg.Key != "only-env" {
+		t.Fatalf("Key = %q, want only-env", cfg.Key)
 	}
 }
 

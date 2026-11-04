@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"go-musthave-metrics-tpl/internal/compress"
+	"go-musthave-metrics-tpl/internal/hash"
 	"go-musthave-metrics-tpl/internal/model"
 )
 
@@ -130,6 +131,9 @@ func (s *Service) post(ctx context.Context, body []byte) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Content-Encoding", "gzip")
+	if s.key != "" {
+		req.Header.Set(hash.Header, hash.Sum(body, s.key))
+	}
 
 	resp, err := s.client.Do(req)
 	if err != nil {
