@@ -3,6 +3,7 @@ package service
 import (
 	"compress/gzip"
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/mailru/easyjson"
+	"github.com/shirou/gopsutil/v4/cpu"
 	"go.uber.org/zap"
 
 	"go-musthave-metrics-tpl/internal/agent/config"
@@ -405,4 +407,233 @@ func TestReportWithDifferentKeyIsRejected(t *testing.T) {
 	if !ok || pollCount != 1 {
 		t.Fatalf("PollCount = (%d, %v), want (1, true)", pollCount, ok)
 	}
+}
+
+func TestSplitChunks(t *testing.T) {
+	metrics := make([]model.Metrics, 5)
+	for i := range metrics {
+		metrics[i].ID = string(rune('a' + i))
+	}
+
+	chunks := splitChunks(metrics, 2)
+	if len(chunks) != 2 {
+		t.Fatalf("chunks = %d, want 2", len(chunks))
+	}
+	total := 0
+	seen := map[string]int{}
+	for _, chunk := range chunks {
+		if len(chunk) == 0 {
+			t.Fatal("empty chunk")
+		}
+		total += len(chunk)
+		for _, metric := range chunk {
+			seen[metric.ID]++
+		}
+	}
+	if total != len(metrics) || len(seen) != len(metrics) {
+		t.Fatalf("split lost metrics: total=%d unique=%d", total, len(seen))
+	}
+
+	if got := splitChunks(metrics, 1); len(got) != 1 || len(got[0]) != len(metrics) {
+		t.Fatalf("limit 1 produced %#v", got)
+	}
+	if got := splitChunks(metrics, 0); len(got) != 1 {
+		t.Fatalf("limit 0 produced %d chunks, want 1", len(got))
+	}
+	if got := splitChunks(metrics, 100); len(got) != len(metrics) {
+		t.Fatalf("limit above length produced %d chunks, want %d", len(got), len(metrics))
+	}
+	if splitChunks(nil, 3) != nil {
+		t.Fatal("empty input must produce no chunks")
+	}
+}
+
+func TestReportLimitsInFlightRequests(t *testing.T) {
+	const limit = 2
+
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unlock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unlock()
+
+	var inFlight atomic.Int32
+	var maxInFlight atomic.Int32
+	var requests atomic.Int32
+	reached := make(chan struct{})
+	var once sync.Once
+
+	var mu sync.Mutex
+	got := map[string]struct{}{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, metric := range readBatch(t, r) {
+			mu.Lock()
+			got[metric.ID] = struct{}{}
+			mu.Unlock()
+		}
+
+		cur := inFlight.Add(1)
+		requests.Add(1)
+		for {
+			old := maxInFlight.Load()
+			if cur <= old || maxInFlight.CompareAndSwap(old, cur) {
+				break
+			}
+		}
+		if cur >= int32(limit) {
+			once.Do(func() { close(reached) })
+		}
+
+		<-release
+		inFlight.Add(-1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cfg := config.DefaultAgent()
+	cfg.RateLimit = limit
+	s := New(cfg, zap.NewNop())
+	s.serverURL = server.URL
+	s.Collect()
+
+	gauges, counters := s.metrics.Snapshot()
+	want := len(gauges) + len(counters)
+
+	done := make(chan struct{})
+	go func() {
+		s.Report()
+		close(done)
+	}()
+
+	select {
+	case <-reached:
+	case <-time.After(3 * time.Second):
+		t.Fatal("workers did not reach the rate limit")
+	}
+	if max := maxInFlight.Load(); max > int32(limit) {
+		t.Fatalf("in-flight requests = %d, limit %d", max, limit)
+	}
+
+	unlock()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("report did not finish")
+	}
+	if max := maxInFlight.Load(); max != int32(limit) {
+		t.Fatalf("max in-flight requests = %d, want %d", max, limit)
+	}
+	if gotReqs := requests.Load(); gotReqs != int32(limit) {
+		t.Fatalf("requests = %d, want %d", gotReqs, limit)
+	}
+	if len(got) != want {
+		t.Fatalf("delivered metrics = %d, want %d", len(got), want)
+	}
+	pollCount, ok := s.metrics.Counter("PollCount")
+	if !ok || pollCount != 0 {
+		t.Fatalf("PollCount = (%d, %v), want (0, true)", pollCount, ok)
+	}
+}
+
+func TestCollectSystemAndReport(t *testing.T) {
+	var mu sync.Mutex
+	got := map[string]model.Metrics{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, metric := range readBatch(t, r) {
+			mu.Lock()
+			got[metric.ID] = metric
+			mu.Unlock()
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	s := New(config.DefaultAgent(), zap.NewNop())
+	s.serverURL = server.URL
+	s.collectSystem(context.Background())
+
+	total, ok := s.metrics.Gauge("TotalMemory")
+	if !ok || total <= 0 {
+		t.Fatalf("TotalMemory = (%v, %v), want a positive gauge", total, ok)
+	}
+	free, ok := s.metrics.Gauge("FreeMemory")
+	if !ok || free < 0 || free > total {
+		t.Fatalf("FreeMemory = (%v, %v), TotalMemory = %v", free, ok, total)
+	}
+	if _, ok := s.metrics.Counter("PollCount"); ok {
+		t.Fatal("system collector updated PollCount")
+	}
+
+	cpus, err := cpu.Counts(true)
+	if err != nil {
+		t.Fatalf("cpu.Counts: %v", err)
+	}
+	for i := 1; i <= cpus; i++ {
+		name := fmt.Sprintf("CPUutilization%d", i)
+		if _, ok := s.metrics.Gauge(name); !ok {
+			t.Fatalf("gauge %s was not collected", name)
+		}
+	}
+	if _, ok := s.metrics.Gauge(fmt.Sprintf("CPUutilization%d", cpus+1)); ok {
+		t.Fatalf("unexpected gauge CPUutilization%d", cpus+1)
+	}
+
+	s.Report()
+
+	mu.Lock()
+	defer mu.Unlock()
+	for _, name := range []string{"TotalMemory", "FreeMemory", "CPUutilization1"} {
+		metric, ok := got[name]
+		if !ok {
+			t.Errorf("metric %s was not sent", name)
+			continue
+		}
+		if metric.MType != model.Gauge || metric.Value == nil {
+			t.Errorf("%s = %+v, want gauge", name, metric)
+		}
+	}
+}
+
+func TestRunStopsOnCancel(t *testing.T) {
+	s := New(config.DefaultAgent(), zap.NewNop())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
+		s.Run(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not stop after cancel")
+	}
+}
+
+func readBatch(t *testing.T, r *http.Request) []model.Metrics {
+	t.Helper()
+	if r.URL.Path != "/updates/" {
+		t.Errorf("path = %s, want /updates/", r.URL.Path)
+	}
+	zr, err := gzip.NewReader(r.Body)
+	if err != nil {
+		t.Errorf("gzip reader: %v", err)
+		return nil
+	}
+	defer zr.Close()
+	body, err := io.ReadAll(zr)
+	if err != nil {
+		t.Errorf("read body: %v", err)
+		return nil
+	}
+	var batch model.MetricsList
+	if err := easyjson.Unmarshal(body, &batch); err != nil {
+		t.Errorf("unmarshal body: %v", err)
+		return nil
+	}
+	return batch
 }

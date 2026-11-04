@@ -26,6 +26,9 @@ func TestParseAgentFlagsDefaults(t *testing.T) {
 	if cfg.Key != "" {
 		t.Fatalf("Key = %q, want empty", cfg.Key)
 	}
+	if cfg.RateLimit != DefaultRateLimit {
+		t.Fatalf("RateLimit = %d, want %d", cfg.RateLimit, DefaultRateLimit)
+	}
 }
 
 func TestParseAgentFlagsOverrides(t *testing.T) {
@@ -132,6 +135,37 @@ func TestParseAgentKeyEnvOnly(t *testing.T) {
 	}
 	if cfg.Key != "only-env" {
 		t.Fatalf("Key = %q, want only-env", cfg.Key)
+	}
+}
+
+func TestParseAgentRateLimitFlag(t *testing.T) {
+	cfg, err := parseAgentFlags([]string{"-l=4"}, io.Discard)
+	if err != nil {
+		t.Fatalf("parseAgentFlags() error = %v", err)
+	}
+	if cfg.RateLimit != 4 {
+		t.Fatalf("RateLimit = %d, want 4", cfg.RateLimit)
+	}
+}
+
+func TestParseAgentRateLimitEnvOverridesFlag(t *testing.T) {
+	cfg, err := parseAgent([]string{"-l=4"}, io.Discard, map[string]string{
+		"RATE_LIMIT": "9",
+	})
+	if err != nil {
+		t.Fatalf("parseAgent() error = %v", err)
+	}
+	if cfg.RateLimit != 9 {
+		t.Fatalf("RateLimit = %d, want 9", cfg.RateLimit)
+	}
+}
+
+func TestParseAgentRateLimitEnvInvalid(t *testing.T) {
+	_, err := parseAgent(nil, io.Discard, map[string]string{
+		"RATE_LIMIT": "abc",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid RATE_LIMIT")
 	}
 }
 

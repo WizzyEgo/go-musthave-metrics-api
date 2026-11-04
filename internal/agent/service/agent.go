@@ -93,17 +93,89 @@ func (s *Service) report(ctx context.Context) {
 		return
 	}
 
-	if err := s.sendBatch(ctx, batch); err != nil {
-		if !errors.Is(err, context.Canceled) {
-			s.log.Error("failed to send metrics", zap.Int("count", len(batch)), zap.Error(err))
-		}
+	s.workerPool(ctx, splitChunks(batch, s.workerCount()))
+}
+
+type chunkResult struct {
+	metrics []model.Metrics
+	err     error
+}
+
+// splitChunks делит метрики на limit непустых пачек для параллельной отправки.
+func splitChunks(metrics []model.Metrics, limit int) [][]model.Metrics {
+	if len(metrics) == 0 {
+		return nil
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > len(metrics) {
+		limit = len(metrics)
+	}
+
+	chunks := make([][]model.Metrics, limit)
+	for i, metric := range metrics {
+		chunks[i%limit] = append(chunks[i%limit], metric)
+	}
+	return chunks
+}
+
+// workerPool отправляет пачки пулом воркеров.
+// Одновременно выполняется не больше rateLimit HTTP-запросов.
+func (s *Service) workerPool(ctx context.Context, chunks [][]model.Metrics) {
+	if len(chunks) == 0 {
 		return
 	}
 
-	// Вычитаем отправленную дельту, а не обнуляем счётчик:
-	// за время запроса Collect мог увеличить его снова.
-	for name, value := range counters {
-		s.metrics.SubCounter(name, value)
+	jobs := make(chan []model.Metrics)
+	results := make(chan chunkResult, len(chunks))
+
+	workers := s.workerCount()
+	if workers > len(chunks) {
+		workers = len(chunks)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for chunk := range jobs {
+				results <- chunkResult{metrics: chunk, err: s.sendBatch(ctx, chunk)}
+			}
+		}()
+	}
+
+	go func() {
+		defer close(jobs)
+		for _, chunk := range chunks {
+			select {
+			case <-ctx.Done():
+				return
+			case jobs <- chunk:
+			}
+		}
+	}()
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	for result := range results {
+		if result.err != nil {
+			if !errors.Is(result.err, context.Canceled) {
+				s.log.Error("failed to send metrics", zap.Int("count", len(result.metrics)), zap.Error(result.err))
+			}
+			continue
+		}
+		// Вычитаем отправленную дельту, а не обнуляем счётчик:
+		// за время запроса Collect мог увеличить его снова.
+		for _, metric := range result.metrics {
+			if metric.MType == model.Counter && metric.Delta != nil {
+				s.metrics.SubCounter(metric.ID, *metric.Delta)
+			}
+		}
 	}
 }
 
@@ -150,10 +222,17 @@ func (s *Service) post(ctx context.Context, body []byte) error {
 
 func (s *Service) Run(ctx context.Context) {
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		s.loop(ctx, s.pollInterval, s.Collect)
+	}()
+	go func() {
+		defer wg.Done()
+		// Первый сбор до тикера, чтобы метрики памяти и CPU успели
+		// попасть в ближайшую отправку.
+		s.collectSystem(ctx)
+		s.loop(ctx, s.pollInterval, func() { s.collectSystem(ctx) })
 	}()
 	go func() {
 		defer wg.Done()
