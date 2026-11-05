@@ -127,13 +127,15 @@ func (s *Service) workerPool(ctx context.Context, chunks [][]model.Metrics) {
 		return
 	}
 
-	jobs := make(chan []model.Metrics)
-	results := make(chan chunkResult, len(chunks))
-
 	workers := s.workerCount()
 	if workers > len(chunks) {
 		workers = len(chunks)
 	}
+
+	// Буфер равен числу воркеров, чтобы фидер заполнил слоты сразу,
+	// а воркеры забирали задачи, не дожидаясь следующего send.
+	jobs := make(chan []model.Metrics, workers)
+	results := make(chan chunkResult, len(chunks))
 
 	var wg sync.WaitGroup
 	for i := 0; i < workers; i++ {
@@ -189,22 +191,28 @@ func (s *Service) sendBatch(ctx context.Context, metrics []model.Metrics) error 
 		return err
 	}
 
+	// Подпись от несжатого JSON: её можно проверить по данным, а не по gzip-байтам.
+	var sum string
+	if s.key != "" {
+		sum = hash.Sum(payload, s.key)
+	}
+
 	compressed, err := compress.Encode(payload)
 	if err != nil {
 		return err
 	}
-	return s.post(ctx, compressed)
+	return s.post(ctx, compressed, sum)
 }
 
-func (s *Service) post(ctx context.Context, body []byte) error {
+func (s *Service) post(ctx context.Context, body []byte, sum string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.serverURL+"/updates/", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Content-Encoding", "gzip")
-	if s.key != "" {
-		req.Header.Set(hash.Header, hash.Sum(body, s.key))
+	if sum != "" {
+		req.Header.Set(hash.Header, sum)
 	}
 
 	resp, err := s.client.Do(req)

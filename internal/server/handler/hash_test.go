@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -60,7 +61,7 @@ func TestRouterAcceptsUnsignedRequestWhenKeyIsSet(t *testing.T) {
 	}
 }
 
-func TestRouterChecksHashOfCompressedRequest(t *testing.T) {
+func TestRouterChecksHashOfPlainBodyUnderGzip(t *testing.T) {
 	store := newStubStorage()
 	h := newRouter(nil, store, "secret")
 
@@ -74,7 +75,7 @@ func TestRouterChecksHashOfCompressedRequest(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("Accept-Encoding", "gzip")
-	req.Header.Set(hash.Header, hash.Sum(compressed, "secret"))
+	req.Header.Set(hash.Header, hash.Sum(plain, "secret"))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -87,8 +88,22 @@ func TestRouterChecksHashOfCompressedRequest(t *testing.T) {
 	if rec.Header().Get("Content-Encoding") != "gzip" {
 		t.Fatalf("Content-Encoding = %q, want gzip", rec.Header().Get("Content-Encoding"))
 	}
-	if got := rec.Header().Get(hash.Header); got != hash.Sum(rec.Body.Bytes(), "secret") {
-		t.Fatalf("response hash = %q, want HMAC of the compressed response", got)
+	zr, err := compress.NewReader(bytes.NewReader(rec.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("gzip reader: %v", err)
+	}
+	decoded, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatalf("gzip read: %v", err)
+	}
+	if err = zr.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	if got := rec.Header().Get(hash.Header); got != hash.Sum(decoded, "secret") {
+		t.Fatalf("response hash = %q, want HMAC of the plain response", got)
+	}
+	if got := rec.Header().Get(hash.Header); got == hash.Sum(rec.Body.Bytes(), "secret") {
+		t.Fatal("response hash matches the compressed body")
 	}
 }
 

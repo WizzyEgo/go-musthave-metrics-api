@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"fmt"
@@ -338,7 +339,7 @@ func TestReportKeepsCountersCollectedDuringSend(t *testing.T) {
 	}
 }
 
-func TestReportSignsCompressedBody(t *testing.T) {
+func TestReportSignsPlainBody(t *testing.T) {
 	const key = "secret"
 	var gotHash string
 	var raw []byte
@@ -364,8 +365,22 @@ func TestReportSignsCompressedBody(t *testing.T) {
 	if gotHash == "" {
 		t.Fatal("HashSHA256 header was not sent")
 	}
-	if gotHash != hash.Sum(raw, key) {
-		t.Fatalf("HashSHA256 = %q, want HMAC of the compressed body", gotHash)
+	zr, err := gzip.NewReader(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("gzip reader: %v", err)
+	}
+	plain, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatalf("gzip read: %v", err)
+	}
+	if err = zr.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	if gotHash != hash.Sum(plain, key) {
+		t.Fatalf("HashSHA256 = %q, want HMAC of the plain body", gotHash)
+	}
+	if gotHash == hash.Sum(raw, key) {
+		t.Fatal("HashSHA256 matches the compressed body")
 	}
 }
 
