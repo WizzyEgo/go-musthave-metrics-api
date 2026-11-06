@@ -18,6 +18,7 @@ import (
 	"go.uber.org/zap"
 
 	"go-musthave-metrics-tpl/internal/agent/config"
+	"go-musthave-metrics-tpl/internal/hash"
 	"go-musthave-metrics-tpl/internal/model"
 	"go-musthave-metrics-tpl/internal/server/handler"
 	"go-musthave-metrics-tpl/internal/server/storage"
@@ -329,6 +330,77 @@ func TestReportKeepsCountersCollectedDuringSend(t *testing.T) {
 		t.Fatal("report did not finish")
 	}
 
+	pollCount, ok := s.metrics.Counter("PollCount")
+	if !ok || pollCount != 1 {
+		t.Fatalf("PollCount = (%d, %v), want (1, true)", pollCount, ok)
+	}
+}
+
+func TestReportSignsCompressedBody(t *testing.T) {
+	const key = "secret"
+	var gotHash string
+	var raw []byte
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHash = r.Header.Get(hash.Header)
+		var err error
+		raw, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cfg := config.DefaultAgent()
+	cfg.Key = key
+	s := New(cfg, zap.NewNop())
+	s.serverURL = server.URL
+	s.Collect()
+	s.Report()
+
+	if gotHash == "" {
+		t.Fatal("HashSHA256 header was not sent")
+	}
+	if gotHash != hash.Sum(raw, key) {
+		t.Fatalf("HashSHA256 = %q, want HMAC of the compressed body", gotHash)
+	}
+}
+
+func TestReportWithMatchingKeyIsStored(t *testing.T) {
+	const key = "secret"
+	store := storage.NewMemStorage()
+	server := httptest.NewServer(handler.MetricHandler(nil, store, key))
+	defer server.Close()
+
+	cfg := config.DefaultAgent()
+	cfg.Key = key
+	s := New(cfg, zap.NewNop())
+	s.serverURL = server.URL
+	s.Collect()
+	s.Report()
+
+	pollCount, ok := store.GetCounter(context.Background(), "PollCount")
+	if !ok || pollCount != 1 {
+		t.Fatalf("server PollCount = (%d, %v), want (1, true)", pollCount, ok)
+	}
+}
+
+func TestReportWithDifferentKeyIsRejected(t *testing.T) {
+	store := storage.NewMemStorage()
+	server := httptest.NewServer(handler.MetricHandler(nil, store, "server-key"))
+	defer server.Close()
+
+	cfg := config.DefaultAgent()
+	cfg.Key = "agent-key"
+	s := New(cfg, zap.NewNop())
+	s.serverURL = server.URL
+	s.Collect()
+	s.Report()
+
+	if _, ok := store.GetCounter(context.Background(), "PollCount"); ok {
+		t.Fatal("server stored metrics signed with another key")
+	}
 	pollCount, ok := s.metrics.Counter("PollCount")
 	if !ok || pollCount != 1 {
 		t.Fatalf("PollCount = (%d, %v), want (1, true)", pollCount, ok)

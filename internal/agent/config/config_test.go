@@ -23,6 +23,9 @@ func TestParseAgentFlagsDefaults(t *testing.T) {
 	if cfg.PollInterval != DefaultPollInterval {
 		t.Fatalf("PollInterval = %d, want %d", cfg.PollInterval, DefaultPollInterval)
 	}
+	if cfg.Key != "" {
+		t.Fatalf("Key = %q, want empty", cfg.Key)
+	}
 }
 
 func TestParseAgentFlagsOverrides(t *testing.T) {
@@ -95,6 +98,40 @@ func TestParseAgentFlagsUnknown(t *testing.T) {
 	}
 	if !errors.Is(err, flag.ErrHelp) && !strings.Contains(err.Error(), "flag provided but not defined") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseAgentKeyFlag(t *testing.T) {
+	cfg, err := parseAgentFlags([]string{"-k=secret"}, io.Discard)
+	if err != nil {
+		t.Fatalf("parseAgentFlags() error = %v", err)
+	}
+	if cfg.Key != "secret" {
+		t.Fatalf("Key = %q, want secret", cfg.Key)
+	}
+}
+
+func TestParseAgentKeyEnvOverridesFlag(t *testing.T) {
+	cfg, err := parseAgent([]string{"-k=invalidkey"}, io.Discard, map[string]string{
+		"KEY": "real-key",
+	})
+	if err != nil {
+		t.Fatalf("parseAgent() error = %v", err)
+	}
+	if cfg.Key != "real-key" {
+		t.Fatalf("Key = %q, want real-key", cfg.Key)
+	}
+}
+
+func TestParseAgentKeyEnvOnly(t *testing.T) {
+	cfg, err := parseAgent(nil, io.Discard, map[string]string{
+		"KEY": "only-env",
+	})
+	if err != nil {
+		t.Fatalf("parseAgent() error = %v", err)
+	}
+	if cfg.Key != "only-env" {
+		t.Fatalf("Key = %q, want only-env", cfg.Key)
 	}
 }
 

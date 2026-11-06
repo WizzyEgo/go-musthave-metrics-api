@@ -25,6 +25,7 @@ type AgentConfig struct {
 	Address        string        `env:"ADDRESS"`
 	PollInterval   time.Duration `env:"POLL_INTERVAL"`
 	ReportInterval time.Duration `env:"REPORT_INTERVAL"`
+	Key            string        `env:"KEY"`
 }
 
 func DefaultAgent() AgentConfig {
@@ -65,6 +66,7 @@ func parseAgent(args []string, output io.Writer, environ map[string]string) (Age
 	fs.StringVar(&cfg.Address, "a", DefaultAddress, "адрес эндпоинта HTTP-сервера")
 	fs.IntVar(&reportSec, "r", int(DefaultReportInterval/time.Second), "частота отправки метрик на сервер в секундах")
 	fs.IntVar(&pollSec, "p", int(DefaultPollInterval/time.Second), "частота опроса метрик из runtime в секундах")
+	fs.StringVar(&cfg.Key, "k", "", "ключ для подписи тела запроса HMAC-SHA256")
 	if err := fs.Parse(args); err != nil {
 		return AgentConfig{}, err
 	}

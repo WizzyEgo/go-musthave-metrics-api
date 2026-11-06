@@ -193,7 +193,7 @@ func TestUpdateInvalidRequests(t *testing.T) {
 }
 
 func TestMetricHandler(t *testing.T) {
-	h := MetricHandler(nil, storage.NewMemStorage())
+	h := MetricHandler(nil, storage.NewMemStorage(), "")
 	req := httptest.NewRequest(http.MethodPost, "/update/gauge/HeapAlloc/42", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

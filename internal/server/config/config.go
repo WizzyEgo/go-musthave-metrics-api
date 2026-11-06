@@ -32,6 +32,7 @@ type ServerConfig struct {
 	FileStoragePath string        `env:"FILE_STORAGE_PATH"`
 	Restore         bool          `env:"RESTORE"`
 	DatabaseDSN     string        `env:"DATABASE_DSN"`
+	Key             string        `env:"KEY"`
 }
 
 func ParseServer() (ServerConfig, error) {
@@ -60,6 +61,7 @@ func parseServer(args []string, output io.Writer, environ map[string]string) (Se
 	fs.StringVar(&cfg.FileStoragePath, "f", DefaultFileStoragePath, "файл для сохранения метрик (пустое значение отключает запись)")
 	fs.BoolVar(&cfg.Restore, "r", DefaultRestore, "загружать сохранённые метрики при старте сервера")
 	fs.StringVar(&cfg.DatabaseDSN, "d", "", "адрес подключения к PostgreSQL")
+	fs.StringVar(&cfg.Key, "k", "", "ключ для проверки подписи тела запроса HMAC-SHA256")
 	if err := fs.Parse(args); err != nil {
 		return ServerConfig{}, err
 	}
