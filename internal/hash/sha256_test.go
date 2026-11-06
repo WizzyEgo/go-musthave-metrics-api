@@ -1,16 +1,16 @@
 package hash
 
 import (
-	"encoding/hex"
-	"strings"
+	"crypto/sha256"
+	"encoding/base64"
 	"testing"
 )
 
 func TestSumDependsOnBodyAndKey(t *testing.T) {
 	body := []byte(`{"id":"Alloc","type":"gauge","value":1}`)
 	first := Sum(body, "secret")
-	if first == "" || len(first) != hex.EncodedLen(32) {
-		t.Fatalf("sum = %q, want 64 hex chars", first)
+	if first == "" || len(first) != base64.StdEncoding.EncodedLen(sha256.Size) {
+		t.Fatalf("sum = %q, want %d base64 chars", first, base64.StdEncoding.EncodedLen(sha256.Size))
 	}
 	if Sum(body, "secret") != first {
 		t.Fatal("sum is not stable")
@@ -31,9 +31,6 @@ func TestValid(t *testing.T) {
 	if !Valid(body, key, sum) {
 		t.Fatal("expected valid signature")
 	}
-	if !Valid(body, key, strings.ToUpper(sum)) {
-		t.Fatal("expected uppercase hex to be accepted")
-	}
 	if Valid(body, "other", sum) {
 		t.Fatal("signature for another key was accepted")
 	}
@@ -41,7 +38,7 @@ func TestValid(t *testing.T) {
 		t.Fatal("signature for another body was accepted")
 	}
 	if Valid(body, key, "zz") {
-		t.Fatal("non-hex signature was accepted")
+		t.Fatal("invalid signature was accepted")
 	}
 	if Valid(body, key, "") {
 		t.Fatal("empty signature was accepted")

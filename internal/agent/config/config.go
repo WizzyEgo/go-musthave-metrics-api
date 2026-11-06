@@ -19,6 +19,8 @@ const (
 	DefaultPollInterval = 2 * time.Second
 	// DefaultReportInterval — интервал отправки метрик на сервер.
 	DefaultReportInterval = 10 * time.Second
+	// DefaultRateLimit — максимум одновременных исходящих запросов.
+	DefaultRateLimit = 1
 )
 
 type AgentConfig struct {
@@ -26,6 +28,7 @@ type AgentConfig struct {
 	PollInterval   time.Duration `env:"POLL_INTERVAL"`
 	ReportInterval time.Duration `env:"REPORT_INTERVAL"`
 	Key            string        `env:"KEY"`
+	RateLimit      int           `env:"RATE_LIMIT"`
 }
 
 func DefaultAgent() AgentConfig {
@@ -33,6 +36,7 @@ func DefaultAgent() AgentConfig {
 		Address:        DefaultAddress,
 		PollInterval:   DefaultPollInterval,
 		ReportInterval: DefaultReportInterval,
+		RateLimit:      DefaultRateLimit,
 	}
 }
 
@@ -67,6 +71,7 @@ func parseAgent(args []string, output io.Writer, environ map[string]string) (Age
 	fs.IntVar(&reportSec, "r", int(DefaultReportInterval/time.Second), "частота отправки метрик на сервер в секундах")
 	fs.IntVar(&pollSec, "p", int(DefaultPollInterval/time.Second), "частота опроса метрик из runtime в секундах")
 	fs.StringVar(&cfg.Key, "k", "", "ключ для подписи тела запроса HMAC-SHA256")
+	fs.IntVar(&cfg.RateLimit, "l", DefaultRateLimit, "максимальное количество одновременных исходящих запросов")
 	if err := fs.Parse(args); err != nil {
 		return AgentConfig{}, err
 	}

@@ -19,6 +19,7 @@ type Service struct {
 	key            string
 	pollInterval   time.Duration
 	reportInterval time.Duration
+	rateLimit      int
 	reportMu       sync.Mutex
 }
 
@@ -36,5 +37,13 @@ func New(cfg config.AgentConfig, log *zap.Logger) *Service {
 		key:            cfg.Key,
 		pollInterval:   cfg.PollInterval,
 		reportInterval: cfg.ReportInterval,
+		rateLimit:      cfg.RateLimit,
 	}
+}
+
+func (s *Service) workerCount() int {
+	if s.rateLimit < 1 {
+		return 1
+	}
+	return s.rateLimit
 }

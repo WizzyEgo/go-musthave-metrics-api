@@ -88,7 +88,7 @@ func TestHashSHA256RejectsMismatch(t *testing.T) {
 	}
 }
 
-func TestHashSHA256SignsCompressedBody(t *testing.T) {
+func TestHashSHA256SignsPlainBodyUnderGzip(t *testing.T) {
 	const key = "secret"
 	plain := []byte(`{"id":"Alloc","type":"gauge","value":1}`)
 	compressed, err := compress.Encode(plain)
@@ -107,13 +107,13 @@ func TestHashSHA256SignsCompressedBody(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(plain)
 	})
-	h := HashSHA256(key)(Gzip(inner))
+	h := Gzip(HashSHA256(key)(inner))
 
 	req := httptest.NewRequest(http.MethodPost, "/update/", bytes.NewReader(compressed))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("Accept-Encoding", "gzip")
-	req.Header.Set(hash.Header, hash.Sum(compressed, key))
+	req.Header.Set(hash.Header, hash.Sum(plain, key))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -126,7 +126,7 @@ func TestHashSHA256SignsCompressedBody(t *testing.T) {
 	if rec.Header().Get("Content-Encoding") != "gzip" {
 		t.Fatalf("Content-Encoding = %q, want gzip", rec.Header().Get("Content-Encoding"))
 	}
-	if got := rec.Header().Get(hash.Header); got != hash.Sum(rec.Body.Bytes(), key) {
-		t.Fatalf("response hash = %q, want hash of compressed body", got)
+	if got := rec.Header().Get(hash.Header); got != hash.Sum(plain, key) {
+		t.Fatalf("response hash = %q, want hash of plain body", got)
 	}
 }

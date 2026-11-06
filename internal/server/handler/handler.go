@@ -25,8 +25,12 @@ func newRouter(log *zap.Logger, store storage.Storage, key string) http.Handler 
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestLogger(log))
-	r.Use(middleware.HashSHA256(key))
+	// Gzip снаружи подписи: декомпрессия запроса происходит раньше проверки,
+	// а ответ подписывается до сжатия.
 	r.Use(middleware.Gzip)
+	if key != "" {
+		r.Use(middleware.HashSHA256(key))
+	}
 	r.Get("/ping", Ping(log, store))
 	r.Post("/update/{type}/{name}/{value}", Update(log, store))
 	r.Post("/update", UpdateJSON(log, store))
